@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import logging
 import os
 import re
 from datetime import datetime
@@ -9,7 +10,7 @@ from PIL import Image as PILImage, UnidentifiedImageError
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
-from ..database import get_session
+from ..database import get_session, SessionLocal
 from ..models.image import Image, TVImage
 from ..models.tv import TV
 from ..models.history import History
@@ -19,6 +20,8 @@ from ..services.image_processor import (
 )
 from ..services.tv_manager import tv_manager
 from ..services.ws_manager import ws_manager
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/images", tags=["images"])
 
@@ -262,3 +265,94 @@ async def tv_thumb(tv_id: int, remote_id: str, s: AsyncSession = Depends(get_ses
     if not data:
         raise HTTPException(404)
     return Response(content=data, media_type="image/jpeg")
+
+
+# ── Sync all library images → TV ────────────────────────────────────────────
+
+async def _sync_library_task(tv_id: int, image_ids: list[int]) -> None:
+    """Background task: upload each image to the TV, skip already-present ones."""
+    total = len(image_ids)
+    uploaded = 0
+    failed = 0
+    skipped = 0
+    async with SessionLocal() as s:
+        tv = await s.get(TV, tv_id)
+        if not tv:
+            log.warning("sync_task: tv %s not found", tv_id)
+            return
+        for done, image_id in enumerate(image_ids, start=1):
+            img = await s.get(Image, image_id)
+            if not img:
+                failed += 1
+                continue
+            # Race-condition guard: re-check whether already uploaded since task started
+            existing = (await s.execute(
+                select(TVImage).where(
+                    TVImage.tv_id == tv_id,
+                    TVImage.image_id == image_id,
+                    TVImage.is_on_tv.is_(True),
+                )
+            )).scalar_one_or_none()
+            if existing and existing.remote_id:
+                skipped += 1
+                await ws_manager.broadcast({
+                    "type": "sync_progress", "tv_id": tv_id,
+                    "done": done, "total": total,
+                    "filename": img.filename, "status": "skipped",
+                })
+                continue
+            # Ensure image is processed (resized / formatted for TV)
+            if not img.processed_path or not os.path.exists(img.processed_path):
+                try:
+                    pp, w, h = await process_image(img.local_path, img.file_hash)
+                    img.processed_path = pp
+                    img.width, img.height = w, h
+                    await s.commit()
+                except Exception as e:
+                    log.warning("sync_task process failed img %s: %s", image_id, e)
+                    failed += 1
+                    await ws_manager.broadcast({
+                        "type": "sync_progress", "tv_id": tv_id,
+                        "done": done, "total": total,
+                        "filename": img.filename, "status": "error",
+                    })
+                    continue
+            remote_id = await tv_manager.upload_image(tv, img.processed_path)
+            if remote_id:
+                s.add(TVImage(tv_id=tv_id, image_id=image_id, remote_id=remote_id, is_on_tv=True))
+                await s.commit()
+                uploaded += 1
+                status = "ok"
+            else:
+                failed += 1
+                status = "error"
+            await ws_manager.broadcast({
+                "type": "sync_progress", "tv_id": tv_id,
+                "done": done, "total": total,
+                "filename": img.filename, "status": status,
+            })
+    await ws_manager.broadcast({
+        "type": "sync_complete", "tv_id": tv_id,
+        "uploaded": uploaded, "failed": failed, "skipped": skipped,
+    })
+
+
+@router.post("/sync/{tv_id}")
+async def sync_library_to_tv(tv_id: int, s: AsyncSession = Depends(get_session)):
+    """Upload every library image that isn't already on the specified TV."""
+    tv = await s.get(TV, tv_id)
+    if not tv:
+        raise HTTPException(404)
+    # IDs already tracked as on-TV
+    already_ids: set[int] = set(
+        (await s.execute(
+            select(TVImage.image_id).where(TVImage.tv_id == tv_id, TVImage.is_on_tv.is_(True))
+        )).scalars().all()
+    )
+    all_ids: list[int] = list(
+        (await s.execute(select(Image.id))).scalars().all()
+    )
+    to_upload = [i for i in all_ids if i not in already_ids]
+    if to_upload:
+        asyncio.create_task(_sync_library_task(tv_id, to_upload))
+    return {"queued": len(to_upload), "already_on_tv": len(already_ids)}

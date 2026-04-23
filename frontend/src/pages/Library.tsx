@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, DragEvent } from 'react'
 import { api, Image, TV } from '../lib/api'
 import { useToast } from '../components/Toast'
+import { wsClient } from '../lib/ws'
 
 export default function Library() {
   const [images, setImages] = useState<Image[]>([])
@@ -8,6 +9,7 @@ export default function Library() {
   const [filter, setFilter] = useState({ source: '', tag: '', favourite: false, q: '' })
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [uploading, setUploading] = useState<{ name: string; pct: number }[]>([])
+  const [syncing, setSyncing] = useState<{ tv_id: number; done: number; total: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const toast = useToast()
 
@@ -21,6 +23,21 @@ export default function Library() {
   }
   useEffect(() => { document.title = 'SAWSUBE — Library'; load(); api.get<TV[]>('/api/tvs').then(setTvs) }, [])
   useEffect(() => { load() }, [filter])
+
+  useEffect(() => {
+    const unsub = wsClient.on((msg: any) => {
+      if (msg.type === 'sync_progress') {
+        setSyncing({ tv_id: msg.tv_id, done: msg.done, total: msg.total })
+      } else if (msg.type === 'sync_complete') {
+        setSyncing(null)
+        const txt = msg.failed > 0
+          ? `Sync done: ${msg.uploaded} uploaded, ${msg.failed} failed`
+          : `Sync done: ${msg.uploaded} uploaded`
+        toast.push({ type: msg.failed > 0 ? 'error' : 'success', text: txt })
+      }
+    })
+    return unsub
+  }, [])
 
   const upload = async (files: FileList | File[]) => {
     const arr = Array.from(files)
@@ -61,6 +78,18 @@ export default function Library() {
     await Promise.all(Array.from(selected).map((id) => sendTo(id, tv_id)))
     setSelected(new Set())
   }
+
+  const syncAllTo = async (tv_id: number) => {
+    try {
+      const res = await api.post<{ queued: number; already_on_tv: number }>(`/api/images/sync/${tv_id}`)
+      if (res.queued === 0) {
+        toast.push({ type: 'success', text: `All ${res.already_on_tv} image(s) already on TV` })
+      } else {
+        toast.push({ type: 'success', text: `Syncing ${res.queued} image(s)…` })
+        setSyncing({ tv_id, done: 0, total: res.queued })
+      }
+    } catch (e: any) { toast.push({ type: 'error', text: e.message }) }
+  }
   const bulkDelete = async () => {
     if (!confirm(`Delete ${selected.size} images?`)) return
     await Promise.all(Array.from(selected).map((id) => api.del(`/api/images/${id}?also_from_tv=true`).catch(() => null)))
@@ -75,12 +104,17 @@ export default function Library() {
           <input className="input w-48" placeholder="Search filename" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} />
           <select className="input w-32" value={filter.source} onChange={(e) => setFilter({ ...filter, source: e.target.value })}>
             <option value="">All sources</option>
-            <option>local</option><option>unsplash</option><option>nasa</option><option>rijksmuseum</option><option>reddit</option>
+            <option>local</option><option>unsplash</option><option>nasa</option><option>rijksmuseum</option><option>reddit</option><option>pexels</option>
           </select>
           <input className="input w-28" placeholder="Tag" value={filter.tag} onChange={(e) => setFilter({ ...filter, tag: e.target.value })} />
           <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={filter.favourite} onChange={(e) => setFilter({ ...filter, favourite: e.target.checked })} /> Fav</label>
           <button className="btn-primary" onClick={() => fileRef.current?.click()}>Upload</button>
           <input ref={fileRef} type="file" multiple className="hidden" accept="image/*" onChange={(e) => e.target.files && upload(e.target.files)} />
+          <select className="input w-44" disabled={syncing !== null}
+            onChange={(e) => { if (e.target.value) { syncAllTo(Number(e.target.value)); e.target.value = '' } }} defaultValue="">
+            <option value="">Sync all to TV…</option>
+            {tvs.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
         </div>
       </div>
 
@@ -129,6 +163,16 @@ export default function Library() {
         <div className="fixed bottom-4 left-4 card p-3 space-y-2 w-72 z-40">
           <div className="text-sm font-semibold">Uploading…</div>
           {uploading.map((u, i) => <div key={i} className="text-xs truncate">{u.name}</div>)}
+        </div>
+      )}
+
+      {syncing && (
+        <div className="fixed bottom-4 right-4 card p-3 w-80 z-40 space-y-2">
+          <div className="text-sm font-semibold">Syncing to TV… {syncing.done}/{syncing.total}</div>
+          <div className="w-full bg-surface rounded-full h-2 overflow-hidden">
+            <div className="bg-accent h-2 rounded-full transition-all"
+                 style={{ width: `${syncing.total > 0 ? (syncing.done / syncing.total) * 100 : 0}%` }} />
+          </div>
         </div>
       )}
     </div>
