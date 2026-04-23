@@ -1,5 +1,5 @@
 @echo off
-REM Samsung Frame Manager — Windows start script
+REM SAWSUBE — Windows start script
 setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
@@ -34,7 +34,7 @@ if %errorlevel%==0 (
   echo Node.js not found — frontend will not be served. API only.
 )
 
-echo Starting Frame Manager on http://localhost:8000
+echo Starting SAWSUBE on http://localhost:8000
 python -m backend.main
 goto :eof
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import html
 import re
 import httpx
 from ...config import settings
@@ -36,10 +37,13 @@ async def fetch(sub: str, sort: str = "top", t: str = "week", limit: int = 20) -
         d = child.get("data") or {}
         if d.get("post_hint") != "image":
             continue
+        url = html.unescape(d.get("url_overridden_by_dest") or d.get("url") or "")
+        thumb = d.get("thumbnail") if str(d.get("thumbnail", "")).startswith("http") else url
+        thumb = html.unescape(thumb or url)
         out.append({
             "id": d.get("id"),
-            "url": d.get("url_overridden_by_dest") or d.get("url"),
-            "thumb": d.get("thumbnail") if str(d.get("thumbnail", "")).startswith("http") else d.get("url"),
+            "url": url,
+            "thumb": thumb,
             "title": d.get("title"),
             "credit": d.get("author"),
             "html": "https://www.reddit.com" + d.get("permalink", ""),

@@ -59,3 +59,50 @@ async def test_limit_clamped_low(tmp_workdir):
     with patch("backend.services.sources.reddit.httpx.AsyncClient", FakeClient):
         await reddit.fetch("aww", limit=-5)
     assert captured["params"]["limit"] == 1
+
+
+async def test_preview_urls_are_html_unescaped(tmp_workdir):
+    from backend.services.sources import reddit
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "data": {
+                    "children": [
+                        {
+                            "data": {
+                                "id": "abc",
+                                "post_hint": "image",
+                                "url": "https://i.redd.it/test.jpeg",
+                                "thumbnail": "https://preview.redd.it/test.jpeg?width=140&amp;height=93&amp;auto=webp",
+                                "title": "Example",
+                                "author": "user",
+                                "permalink": "/r/pics/comments/abc/example/",
+                                "subreddit": "pics",
+                            }
+                        }
+                    ]
+                }
+            }
+
+    class FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
+        async def get(self, url, params=None):
+            return FakeResponse()
+
+    with patch("backend.services.sources.reddit.httpx.AsyncClient", FakeClient):
+        out = await reddit.fetch("pics")
+
+    assert out[0]["url"] == "https://i.redd.it/test.jpeg"
+    assert out[0]["thumb"] == "https://preview.redd.it/test.jpeg?width=140&height=93&auto=webp"
