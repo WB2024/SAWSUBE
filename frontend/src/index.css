@@ -1,0 +1,66 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* SAWSUBE Palette — Light Mode */
+  --bg:     244 241 237;   /* Canvas   #F4F1ED */
+  --fg:     26 26 26;      /* Ink      #1A1A1A */
+  --muted:  107 101 96;    /* Graphite #6B6560 */
+  --card:   234 230 225;   /* Linen    #EAE6E1 */
+  --border: 216 211 205;   /* Chalk    #D8D3CD */
+  --accent: 200 97 42;     /* Ember    #C8612A */
+  --font-heading: 'DM Serif Display', serif;
+  --font-body:    'DM Sans', sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+}
+.dark {
+  /* SAWSUBE Palette — Dark Mode */
+  --bg:     15 25 35;      /* Obsidian #0F1923 */
+  --fg:     244 241 237;   /* Canvas   #F4F1ED */
+  --muted:  160 152 144;   /* #A09890 */
+  --card:   30 42 53;      /* Slate    #1E2A35 */
+  --border: 46 61 77;      /* #2E3D4D */
+  --accent: 200 97 42;     /* Ember stays */
+}
+
+html, body, #root { height: 100%; }
+body { font-family: var(--font-body); font-size: 14px; }
+h1   { font-family: var(--font-heading); font-size: 28px; font-weight: 400; }
+h2   { font-family: var(--font-body); font-size: 18px; font-weight: 600; }
+code, pre { font-family: var(--font-mono); }
+
+/* ── Buttons ── */
+.btn { @apply px-4 py-2 rounded-md text-sm font-medium transition border border-transparent; font-family: var(--font-body); cursor: pointer; }
+.btn-primary { @apply btn; background-color: #C8612A; color: #F4F1ED; }
+.btn-primary:hover:not(:disabled) { background-color: #E8845A; }
+.btn-primary:disabled { @apply opacity-50 cursor-not-allowed; }
+.btn-ghost  { @apply btn bg-transparent border-border text-fg hover:bg-card; }
+.btn-ghost:disabled { @apply opacity-50 cursor-not-allowed; }
+.btn-danger { @apply btn; background-color: #A33228; color: #F4F1ED; }
+.btn-danger:hover:not(:disabled) { background-color: #BF3B2F; }
+.btn-danger:disabled { @apply opacity-50 cursor-not-allowed; }
+
+/* ── Form inputs ── */
+.input { @apply w-full rounded-md border text-sm; padding: 8px 12px; background: rgb(var(--bg)); border-color: rgb(var(--border)); color: rgb(var(--fg)); font-family: var(--font-body); outline: none; }
+.input:focus { border-color: #C8612A; box-shadow: 0 0 0 3px rgba(200,97,42,0.15); }
+
+/* ── Cards / Badges ── */
+.card  { @apply rounded-lg; background: rgb(var(--card)); border: 1px solid rgb(var(--border)); box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.badge { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded; font-size: 11px; font-weight: 500; font-family: var(--font-body); background: rgb(var(--card)); border: 1px solid rgb(var(--border)); }
+
+/* ── SAWSUBE Sidebar nav ── */
+.sawsube-nav-item {
+  display: block; padding: 8px 12px; border-radius: 6px;
+  font-family: var(--font-body); font-size: 14px; color: #A09890;
+  transition: background 150ms, color 150ms; text-decoration: none;
+}
+.sawsube-nav-item:hover { background: #1A2632; color: #F4F1ED; }
+.sawsube-nav-active {
+  display: block; padding: 8px 12px; border-radius: 6px;
+  font-family: var(--font-body); font-size: 14px;
+  background: #1E2A35; color: #F4F1ED; border-left: 3px solid #C8612A;
+  text-decoration: none;
+}

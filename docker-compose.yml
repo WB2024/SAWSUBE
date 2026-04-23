@@ -1,0 +1,23 @@
+services:
+  framemanager:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: framemanager:latest
+    container_name: framemanager
+    # network_mode: host  # Recommended on Linux for SSDP discovery + WoL
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./images:/images
+    env_file:
+      - .env
+    environment:
+      - IMAGE_FOLDER=/images
+      - DB_PATH=/app/data/framemanager.db
+      - TOKEN_DIR=/app/data/tokens
+      - IMAGE_CACHE_DIR=/app/data/cache
+      - THUMBNAIL_DIR=/app/data/thumbnails
+      - FRONTEND_DIST=/app/frontend/dist
+    restart: unless-stopped

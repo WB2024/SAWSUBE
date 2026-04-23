@@ -1,0 +1,14 @@
+/images
+uploaded_files.json
+.venv/
+__pycache__/
+*.pyc
+data/
+.env
+node_modules/
+frontend/dist/
+*.token
+.DS_Store
+
+Dev_Spec.md
+SAWSUBE_Brand_Spec.md
