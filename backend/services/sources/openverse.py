@@ -1,17 +1,63 @@
 from __future__ import annotations
+import asyncio
+import time
 import httpx
+from ...config import settings
 
 # Openverse (openverse.org) aggregates Creative Commons licensed content from
-# Flickr, Wikimedia, museums, and dozens of other sources. No API key required.
-# Docs: https://api.openverse.org/v1/
+# Flickr, Wikimedia, museums, and dozens of other sources.
+# Free registration at: https://api.openverse.org/v1/#tag/auth
+# Set OPENVERSE_CLIENT_ID and OPENVERSE_CLIENT_SECRET in .env
 
 _BASE = "https://api.openverse.org/v1/images/"
-_USER_AGENT = "SAWSUBE/1.0 (self-hosted art manager)"
+_TOKEN_URL = "https://api.openverse.org/v1/auth_tokens/token/"
+_USER_AGENT = "SAWSUBE/1.0 (self-hosted Samsung Frame art manager)"
 
 CATEGORIES = ("", "photograph", "illustration", "digitized_artwork")
 LICENSE_TYPES = ("", "commercial", "modification", "creative_commons", "public_domain")
 ASPECT_RATIOS = ("", "wide", "tall", "square")
 SIZES = ("", "large", "medium", "small")
+
+# Token cache
+_token: str = ""
+_token_expires: float = 0.0
+_token_lock = asyncio.Lock()
+
+
+async def _get_auth_headers() -> dict:
+    """Return auth headers. Fetches/refreshes token if client credentials are configured."""
+    global _token, _token_expires
+
+    client_id = settings.OPENVERSE_CLIENT_ID
+    client_secret = settings.OPENVERSE_CLIENT_SECRET
+
+    if not client_id or not client_secret:
+        # No credentials — anonymous request (may 401 if Openverse tightens policy)
+        return {"User-Agent": _USER_AGENT, "Accept": "application/json"}
+
+    async with _token_lock:
+        # Refresh if missing or within 60s of expiry
+        if not _token or time.monotonic() >= _token_expires - 60:
+            async with httpx.AsyncClient(timeout=15.0) as c:
+                r = await c.post(
+                    _TOKEN_URL,
+                    data={
+                        "grant_type": "client_credentials",
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                    },
+                    headers={"User-Agent": _USER_AGENT},
+                )
+                r.raise_for_status()
+                j = r.json()
+            _token = j["access_token"]
+            _token_expires = time.monotonic() + int(j.get("expires_in", 43200))
+
+    return {
+        "Authorization": f"Bearer {_token}",
+        "User-Agent": _USER_AGENT,
+        "Accept": "application/json",
+    }
 
 
 async def search(
@@ -37,11 +83,7 @@ async def search(
     if size and size in SIZES:
         params["size"] = size
 
-    headers = {
-        "User-Agent": _USER_AGENT,
-        "Accept": "application/json",
-    }
-
+    headers = await _get_auth_headers()
     async with httpx.AsyncClient(timeout=20.0, headers=headers) as c:
         r = await c.get(_BASE, params=params)
         r.raise_for_status()
@@ -49,7 +91,6 @@ async def search(
 
     out = []
     for item in j.get("results", []):
-        # Use full-size URL, fall back to thumbnail for display
         url = item.get("url", "")
         thumb = item.get("thumbnail") or url
         if not url:
@@ -72,10 +113,7 @@ async def search(
 
 async def get(image_id: str) -> dict | None:
     """Fetch a single image by its Openverse UUID for the import step."""
-    headers = {
-        "User-Agent": _USER_AGENT,
-        "Accept": "application/json",
-    }
+    headers = await _get_auth_headers()
     async with httpx.AsyncClient(timeout=15.0, headers=headers) as c:
         r = await c.get(f"{_BASE}{image_id}/")
         if r.status_code != 200:

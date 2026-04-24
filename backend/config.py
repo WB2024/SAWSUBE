@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     PEXELS_API_KEY: str = ""
     PIXABAY_API_KEY: str = ""
     REDDIT_USER_AGENT: str = "sawsube/1.0 (local self-hosted)"
+    OPENVERSE_CLIENT_ID: str = ""
+    OPENVERSE_CLIENT_SECRET: str = ""
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     POLL_INTERVAL_SECS: int = 20

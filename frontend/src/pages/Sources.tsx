@@ -207,7 +207,7 @@ function Openverse() {
   }
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted">Searches millions of Creative Commons licensed images aggregated from Flickr, Wikimedia, museums, and more. No API key required.</p>
+      <p className="text-sm text-muted">Searches millions of Creative Commons licensed images from Flickr, Wikimedia, museums, and more. Requires free API credentials — <a className="underline" href="https://api.openverse.org/v1/#tag/auth" target="_blank" rel="noopener noreferrer">register here</a>, then add <code>OPENVERSE_CLIENT_ID</code> and <code>OPENVERSE_CLIENT_SECRET</code> to your .env.</p>
       <div className="flex gap-2 flex-wrap">
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder="Search Openverse…" />
         <select className="input w-40" value={category} onChange={(e) => setCategory(e.target.value)}>
