@@ -8,7 +8,7 @@ from ..database import get_session
 from ..models.folder import WatchFolder
 from ..schemas import FolderCreate, FolderOut, ImportPayload, ImageOut
 from ..services.watcher import watcher, scan_folder_now
-from ..services.sources import unsplash, nasa_apod, rijksmuseum, reddit, reddit_gallery, pexels, pixabay
+from ..services.sources import unsplash, nasa_apod, rijksmuseum, reddit, reddit_gallery, pexels, pixabay, openverse
 from ..services.sources.common import download_and_register
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
@@ -200,6 +200,38 @@ async def reddit_gallery_import(payload: ImportPayload):
     ext = meta.get("ext", "jpg")
     img = await download_and_register(
         payload.url, "reddit", f"reddit_{payload.id or 'img'}.{ext}", meta,
+    )
+    if not img:
+        raise HTTPException(500, "download failed")
+    return img
+
+
+# ── Openverse ───────────────────────────────────────────────────────────────
+@router.get("/openverse/search")
+async def openverse_search(
+    q: str = Query(...),
+    page_size: int = 20,
+    category: str = "",
+    license_type: str = "",
+    aspect_ratio: str = "wide",
+    size: str = "large",
+):
+    return await openverse.search(q, page_size, category, license_type, aspect_ratio, size)
+
+
+@router.post("/openverse/import", response_model=ImageOut)
+async def openverse_import(payload: ImportPayload):
+    if not payload.id:
+        raise HTTPException(400, "id required")
+    info = await openverse.get(payload.id)
+    if not info:
+        raise HTTPException(404)
+    ext = info.get("filetype") or (info["url"].rsplit(".", 1)[-1].split("?")[0] or "jpg")[:4]
+    img = await download_and_register(
+        info["url"], "openverse", f"openverse_{info['id']}.{ext}",
+        {"title": info.get("title"), "credit": info.get("credit"),
+         "credit_url": info.get("credit_url"), "html": info.get("html"),
+         "license": info.get("license"), "source": info.get("source")},
     )
     if not img:
         raise HTTPException(500, "download failed")

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { useToast } from '../components/Toast'
 
-const TABS = ['Unsplash', 'NASA APOD', 'Rijksmuseum', 'Reddit', 'Reddit Gallery', 'Pexels', 'Pixabay'] as const
+const TABS = ['Unsplash', 'NASA APOD', 'Rijksmuseum', 'Reddit', 'Reddit Gallery', 'Pexels', 'Pixabay', 'Openverse'] as const
 type Tab = typeof TABS[number]
 
 export default function Sources() {
@@ -23,6 +23,7 @@ export default function Sources() {
       {tab === 'Reddit Gallery' && <RedditGallery />}
       {tab === 'Pexels' && <Pexels />}
       {tab === 'Pixabay' && <Pixabay />}
+      {tab === 'Openverse' && <Openverse />}
     </div>
   )
 }
@@ -179,6 +180,65 @@ function Reddit() {
             url: it.url, id: it.id,
             meta: { title: it.title, credit: it.credit, html: it.html, subreddit: it.subreddit },
           })
+          t.push({ type: 'success', text: 'Imported' })
+        } catch (e: any) { t.push({ type: 'error', text: e.message }) }
+      }} />
+    </div>
+  )
+}
+
+function Openverse() {
+  const [q, setQ] = useState('landscape')
+  const [category, setCategory] = useState('')
+  const [licenseType, setLicenseType] = useState('')
+  const [aspectRatio, setAspectRatio] = useState('wide')
+  const [size, setSize] = useState('large')
+  const [items, setItems] = useState<any[]>([])
+  const t = useToast()
+  const search = async () => {
+    try {
+      const params = new URLSearchParams({ q, page_size: '24' })
+      if (category) params.set('category', category)
+      if (licenseType) params.set('license_type', licenseType)
+      if (aspectRatio) params.set('aspect_ratio', aspectRatio)
+      if (size) params.set('size', size)
+      setItems(await api.get(`/api/sources/openverse/search?${params}`))
+    } catch (e: any) { t.push({ type: 'error', text: e.message }) }
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted">Searches millions of Creative Commons licensed images aggregated from Flickr, Wikimedia, museums, and more. No API key required.</p>
+      <div className="flex gap-2 flex-wrap">
+        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder="Search Openverse…" />
+        <select className="input w-40" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="">All types</option>
+          <option value="photograph">Photograph</option>
+          <option value="illustration">Illustration</option>
+          <option value="digitized_artwork">Digitized artwork</option>
+        </select>
+        <select className="input w-36" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)}>
+          <option value="">Any ratio</option>
+          <option value="wide">Wide</option>
+          <option value="tall">Tall</option>
+          <option value="square">Square</option>
+        </select>
+        <select className="input w-32" value={size} onChange={(e) => setSize(e.target.value)}>
+          <option value="">Any size</option>
+          <option value="large">Large</option>
+          <option value="medium">Medium</option>
+          <option value="small">Small</option>
+        </select>
+        <select className="input w-44" value={licenseType} onChange={(e) => setLicenseType(e.target.value)}>
+          <option value="">Any license</option>
+          <option value="public_domain">Public domain</option>
+          <option value="commercial">Commercial use OK</option>
+          <option value="modification">Modifications OK</option>
+        </select>
+        <button className="btn-primary" onClick={search}>Search</button>
+      </div>
+      <Grid items={items} onImport={async (it) => {
+        try {
+          await api.post('/api/sources/openverse/import', { id: it.id })
           t.push({ type: 'success', text: 'Imported' })
         } catch (e: any) { t.push({ type: 'error', text: e.message }) }
       }} />
