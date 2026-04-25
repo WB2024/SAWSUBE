@@ -240,6 +240,7 @@ function SetupTab({
   const [profiles, setProfiles] = useState<string[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [confetti, setConfetti] = useState(false)
+  const [serverIps, setServerIps] = useState<string[]>([])
 
   // Cert form
   const [certName, setCertName] = useState('SAWSUBE')
@@ -264,6 +265,7 @@ function SetupTab({
 
   useEffect(() => {
     loadTools(); loadInfo(); loadState(); loadProfiles()
+    api.get<{ ips: string[] }>('/api/server-ips').then(r => setServerIps(r.ips || [])).catch(() => {})
   }, [tvId])
 
   // React to install completion
@@ -439,7 +441,12 @@ function SetupTab({
                 {' '}If wrong, go back to the TV: <b>Apps → 12345 → change Host PC IP → reboot TV</b>.
                 <br />
                 Your server's local IP:{' '}
-                <code style={{ color: C.accent }}>check with <b>ip a</b> or <b>hostname -I</b> in a terminal</code>
+                {serverIps.length > 0
+                  ? serverIps.map(ip => (
+                      <code key={ip} style={{ color: C.accent, marginRight: '8px' }}><b>{ip}</b></code>
+                    ))
+                  : <code style={{ color: C.accent }}>run <b>hostname -I</b> in a terminal</code>
+                }
               </InfoBanner>
             )
           })()}
