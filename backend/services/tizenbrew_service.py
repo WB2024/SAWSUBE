@@ -50,10 +50,10 @@ CURATED_APPS: list[dict[str, Any]] = [
     {
         "id": "jellyfin",
         "name": "Jellyfin",
-        "description": "Free Software Media System. Installed via TizenBrew on your TV — open TizenBrew and find it in the store.",
+        "description": "Free Software Media System — your own personal Netflix. Daily-built WGT from jeppevinkel/jellyfin-tizen-builds.",
         "icon_url": "https://raw.githubusercontent.com/jellyfin/jellyfin-ux/master/branding/SVG/icon-transparent.svg",
-        "source_type": "tizenbrew",
-        "source": "Jellyfin",
+        "source_type": "github",
+        "source": "jeppevinkel/jellyfin-tizen-builds",
         "category": "Media",
     },
     {

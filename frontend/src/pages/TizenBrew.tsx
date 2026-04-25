@@ -608,12 +608,16 @@ function AppsTab({
     } catch (e: any) { setBusy(null); t.push({ type: 'error', text: e.message }) }
   }
 
-  const normalizeGithubSource = (src: string): string =>
-    // Strip full GitHub URL to just owner/repo, e.g. https://github.com/foo/bar → foo/bar
-    src.trim()
+  const normalizeGithubSource = (src: string): string => {
+    // Strip full GitHub URL and trim to just owner/repo (first two path segments)
+    // e.g. https://github.com/foo/bar/releases/download/v1/app.wgt → foo/bar
+    const stripped = src.trim()
       .replace(/^https?:\/\/github\.com\//, '')
       .replace(/\.git$/, '')
       .replace(/\/$/, '')
+    const parts = stripped.split('/')
+    return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : stripped
+  }
 
   const installCustom = async () => {
     if (!customSrc.trim()) { t.push({ type: 'error', text: 'Enter a source' }); return }
