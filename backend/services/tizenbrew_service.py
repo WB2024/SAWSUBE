@@ -660,49 +660,62 @@ class TizenBrewService:
         devices = await self.sdb_devices(sdb_path)
         log.info("sdb devices after connect: %s", devices)
 
-        # Find which serial matches this TV's IP
-        sdb_serial: str | None = next(
-            (d for d in devices if d.startswith(tv_ip)), None
-        )
-        if not sdb_serial:
-            # Fallback: use ip:26101 (standard Tizen TV port)
-            sdb_serial = f"{tv_ip}:26101"
-
         await ws_manager.broadcast({
             "type": "tizenbrew_install_progress", "tv_id": tv_id,
             "step": "installing", "progress": 70,
-            "message": f"Installing WGT on TV (target: {sdb_serial})…",
+            "message": f"Installing WGT on TV ({tv_ip})…",
         })
 
-        async def _tizen_install(target_flag: list[str]) -> dict[str, Any]:
-            return await self.run_command(
-                [tizen_path, "install", "-n", wgt_path, *target_flag],
-                timeout=240.0, tv_id=tv_id, step="installing", progress=85,
-            )
+        # Run sdb connect and tizen install as a single shell command so they share
+        # the same environment/daemon session.  The -t flag is broken on this Tizen Studio
+        # version ("There is no target" even when sdb shows device connected), so we omit it
+        # and let tizen pick the only connected device automatically.
+        shell_cmd = (
+            f"{sdb_path} connect {tv_ip} && "
+            f"{tizen_path} install -n {wgt_path}"
+        )
+        log.info("tizenbrew: running shell install: %s", shell_cmd)
+        await ws_manager.broadcast({
+            "type": "tizenbrew_install_progress", "tv_id": tv_id,
+            "step": "installing", "progress": 75,
+            "message": "Transferring and installing package…",
+        })
 
-        # Attempt 1: with exact sdb serial
-        res = await _tizen_install(["-t", sdb_serial])
-        no_target = "there is no" in res["stdout"].lower() and "target" in res["stdout"].lower()
+        proc = await asyncio.create_subprocess_shell(
+            shell_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        out_lines: list[str] = []
 
-        # Attempt 2: bare IP (some Tizen CLI versions don't include the port)
-        if res["returncode"] != 0 and no_target and ":" in sdb_serial:
-            bare_ip = sdb_serial.split(":")[0]
-            await ws_manager.broadcast({
-                "type": "tizenbrew_install_progress", "tv_id": tv_id,
-                "step": "installing", "progress": 75,
-                "message": f"Retrying with bare IP target: {bare_ip}…",
-            })
-            res = await _tizen_install(["-t", bare_ip])
-            no_target = "there is no" in res["stdout"].lower() and "target" in res["stdout"].lower()
+        async def _read_shell() -> None:
+            assert proc.stdout
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                text = line.decode(errors="replace").rstrip()
+                if not text:
+                    continue
+                out_lines.append(text)
+                log.info("tizenbrew install: %s", text)
+                await ws_manager.broadcast({
+                    "type": "tizenbrew_install_progress",
+                    "tv_id": tv_id, "step": "installing",
+                    "message": text, "progress": 85,
+                })
 
-        # Attempt 3: no -t (installs on first connected device)
-        if res["returncode"] != 0 and no_target:
-            await ws_manager.broadcast({
-                "type": "tizenbrew_install_progress", "tv_id": tv_id,
-                "step": "installing", "progress": 78,
-                "message": "Retrying without explicit target (auto-detect device)…",
-            })
-            res = await _tizen_install([])
+        try:
+            await asyncio.wait_for(asyncio.gather(_read_shell(), proc.wait()), timeout=300.0)
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            return {"success": False, "output": "\n".join(out_lines), "error": "Install timed out after 300s"}
+
+        stdout = "\n".join(out_lines)
+        res = {"returncode": proc.returncode or 0, "stdout": stdout, "stderr": ""}
 
         success = res["returncode"] == 0 and "fail" not in res["stdout"].lower() and \
                   "there is no" not in res["stdout"].lower()
