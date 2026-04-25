@@ -558,18 +558,62 @@ class TizenBrewService:
             return {"success": False, "output": sc.get("output", ""),
                     "error": sc.get("error") or "sdb connect failed"}
 
+        # Discover the exact serial registered in the sdb server so tizen install -t gets it right.
+        # sdb connect <ip> registers the device as <ip>:26101, but let's verify.
+        await ws_manager.broadcast({
+            "type": "tizenbrew_install_progress", "tv_id": tv_id,
+            "step": "connecting", "progress": 65,
+            "message": "Verifying sdb device list…",
+        })
+        devices = await self.sdb_devices(sdb_path)
+        log.info("sdb devices after connect: %s", devices)
+
+        # Find which serial matches this TV's IP
+        sdb_serial: str | None = next(
+            (d for d in devices if d.startswith(tv_ip)), None
+        )
+        if not sdb_serial:
+            # Fallback: use ip:26101 (standard Tizen TV port)
+            sdb_serial = f"{tv_ip}:26101"
+
         await ws_manager.broadcast({
             "type": "tizenbrew_install_progress", "tv_id": tv_id,
             "step": "installing", "progress": 70,
-            "message": "Installing WGT on TV…",
+            "message": f"Installing WGT on TV (target: {sdb_serial})…",
         })
-        # sdb device serial after `sdb connect <ip>` is `<ip>:26101`
-        sdb_serial = tv_ip if ":" in tv_ip else f"{tv_ip}:26101"
-        res = await self.run_command(
-            [tizen_path, "install", "-n", wgt_path, "-t", sdb_serial],
-            timeout=240.0, tv_id=tv_id, step="installing", progress=85,
-        )
-        success = res["returncode"] == 0 and "fail" not in res["stdout"].lower()
+
+        async def _tizen_install(target_flag: list[str]) -> dict[str, Any]:
+            return await self.run_command(
+                [tizen_path, "install", "-n", wgt_path, *target_flag],
+                timeout=240.0, tv_id=tv_id, step="installing", progress=85,
+            )
+
+        # Attempt 1: with exact sdb serial
+        res = await _tizen_install(["-t", sdb_serial])
+        no_target = "there is no" in res["stdout"].lower() and "target" in res["stdout"].lower()
+
+        # Attempt 2: bare IP (some Tizen CLI versions don't include the port)
+        if res["returncode"] != 0 and no_target and ":" in sdb_serial:
+            bare_ip = sdb_serial.split(":")[0]
+            await ws_manager.broadcast({
+                "type": "tizenbrew_install_progress", "tv_id": tv_id,
+                "step": "installing", "progress": 75,
+                "message": f"Retrying with bare IP target: {bare_ip}…",
+            })
+            res = await _tizen_install(["-t", bare_ip])
+            no_target = "there is no" in res["stdout"].lower() and "target" in res["stdout"].lower()
+
+        # Attempt 3: no -t (installs on first connected device)
+        if res["returncode"] != 0 and no_target:
+            await ws_manager.broadcast({
+                "type": "tizenbrew_install_progress", "tv_id": tv_id,
+                "step": "installing", "progress": 78,
+                "message": "Retrying without explicit target (auto-detect device)…",
+            })
+            res = await _tizen_install([])
+
+        success = res["returncode"] == 0 and "fail" not in res["stdout"].lower() and \
+                  "there is no" not in res["stdout"].lower()
         if success:
             await ws_manager.broadcast({
                 "type": "tizenbrew_install_progress", "tv_id": tv_id,
