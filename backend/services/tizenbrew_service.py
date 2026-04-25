@@ -76,7 +76,7 @@ CURATED_APPS: list[dict[str, Any]] = [
         "inject_config": {
             "storage_key": "radarrzen-config",
             "config_file": "js/sawsube-config.js",
-            "fields": {"url": "RADARR_URL", "apiKey": "RADARR_API_KEY"},
+            "fields": {"url": "RADARR_URL", "apiKey": "RADARR_API_KEY", "sawsubeUrl": "SAWSUBE_URL"},
         },
     },
 ]

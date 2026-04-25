@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     TIZEN_CLI_PATH: str = ""
     RADARR_URL: str = ""
     RADARR_API_KEY: str = ""
+    RADARR_USERNAME: str = ""
+    RADARR_PASSWORD: str = ""
+    SAWSUBE_URL: str = "http://localhost:8000"
 
     @property
     def resolution_tuple(self) -> tuple[int, int]:
