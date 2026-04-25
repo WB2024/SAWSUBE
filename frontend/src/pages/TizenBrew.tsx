@@ -294,11 +294,12 @@ function SetupTab({
   const createCert = async () => {
     if (!certPwd) { t.push({ type: 'error', text: 'Password required' }); return }
     setBusy('cert')
+    onClearLog()
     try {
       await api.post(`/api/tizenbrew/${tvId}/certificate`, {
         profile_name: certName, password: certPwd, country: certCountry,
       })
-      t.push({ type: 'info', text: 'Browser will open for Samsung sign-in…' })
+      t.push({ type: 'info', text: 'Certificate creation started — watch the log below…' })
     } catch (e: any) {
       setBusy(null)
       t.push({ type: 'error', text: e.message })
@@ -425,12 +426,38 @@ function SetupTab({
       {/* Step 3 — sdb connect */}
       <StepCard num={3} title="Connect via sdb" status={s3}>
         <div className="space-y-3">
+          {/* IP mismatch warning */}
+          {info?.developer_mode && info.developer_ip && (() => {
+            // Detect if the TV's registered developer IP doesn't look like this machine's IP.
+            // We can't know the server's external IP from the browser, so warn generically
+            // when the developer_ip is set to something that looks like a different host.
+            const devIp = info.developer_ip
+            return (
+              <InfoBanner kind="warn">
+                TV has Host PC IP set to <code>{devIp}</code>.
+                Make sure this matches the IP of the machine running SAWSUBE.
+                {' '}If wrong, go back to the TV: <b>Apps → 12345 → change Host PC IP → reboot TV</b>.
+                <br />
+                Your server's local IP:{' '}
+                <code style={{ color: C.accent }}>check with <b>ip a</b> or <b>hostname -I</b> in a terminal</code>
+              </InfoBanner>
+            )
+          })()}
+
           <div style={{ color: C.muted }} className="text-sm">
             {(sdb?.tv_connected ?? state?.sdb_connected)
               ? '✓ TV is connected on the Samsung Debug Bridge'
-              : 'Bring the TV onto sdb so we can push apps to it.'}
+              : 'Bring the TV onto sdb so we can push apps to it. TV must be on and on the same network.'}
           </div>
-          {sdb?.error && !sdb.tv_connected && <InfoBanner kind="err">{sdb.error}</InfoBanner>}
+          {sdb?.error && !sdb.tv_connected && (
+            <InfoBanner kind="err">
+              {sdb.error.includes('timed out')
+                ? <>sdb connect timed out. Most likely cause: the <b>Host PC IP</b> on the TV ({info?.developer_ip || '?'}) doesn't match this server's IP, so the TV rejects the connection. Update it on the TV and retry.
+                  <br />Also verify the TV is powered on and on the same network.
+                  </>
+                : sdb.error}
+            </InfoBanner>
+          )}
           <button className="btn-primary" onClick={sdbConnect}
                   disabled={!info?.developer_mode || !tools?.found || busy === 'sdb'}>
             {busy === 'sdb' ? 'Connecting…' : 'Connect TV'}
@@ -452,8 +479,16 @@ function SetupTab({
             <div className="space-y-3">
               <InfoBanner kind="warn">
                 Your TV runs Tizen {info.tizen_version || '7+'} ({info.tizen_year}+).
-                Samsung requires a developer certificate to install apps. Creating one
-                opens a browser window for Samsung account sign-in.
+                Samsung requires a developer certificate to install apps.
+              </InfoBanner>
+
+              <InfoBanner kind="info">
+                <b>How it works:</b> SAWSUBE will run <code>tizen certificate</code> to create a developer
+                certificate. If the <b>Samsung Certificate Extension</b> is installed in Tizen Studio's
+                Package Manager, it tries Samsung-signed mode first (browser opens for Samsung account).
+                Otherwise it creates a standard developer certificate automatically — <b>no browser required</b>.
+                <br /><br />
+                To install Samsung Certificate Extension: open <b>Tizen Studio → Package Manager → Extension SDK → Samsung Certificate Extension</b>.
               </InfoBanner>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <label className="flex flex-col gap-1">
@@ -471,10 +506,11 @@ function SetupTab({
                 </label>
               </div>
               <button className="btn-primary" onClick={createCert} disabled={busy === 'cert'}>
-                {busy === 'cert' ? 'Working…' : 'Create Certificate & Sign In with Samsung'}
+                {busy === 'cert' ? 'Working…' : 'Create Certificate'}
               </button>
               <div style={{ color: C.muted }} className="text-xs">
-                A browser window will open — sign in to your Samsung account to complete.
+                If Samsung Certificate Extension is installed, a browser window will open for Samsung sign-in.
+                Otherwise a standard developer certificate is created immediately.
               </div>
             </div>
           )}

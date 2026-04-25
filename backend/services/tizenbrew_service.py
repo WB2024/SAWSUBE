@@ -309,7 +309,7 @@ class TizenBrewService:
 
     # ── sdb ────────────────────────────────────────────────────────────────
     async def sdb_connect(self, tv_ip: str, sdb_path: str) -> dict[str, Any]:
-        res = await self.run_command([sdb_path, "connect", tv_ip], timeout=15.0)
+        res = await self.run_command([sdb_path, "connect", tv_ip], timeout=30.0)
         out = res["stdout"].lower()
         connected = "connected" in out and "fail" not in out and "unable" not in out
         return {"connected": connected, "output": res["stdout"], "error": res.get("error")}
@@ -358,33 +358,96 @@ class TizenBrewService:
         org: str = "SAWSUBE",
         tv_id: int | None = None,
     ) -> dict[str, Any]:
-        if tv_id is not None:
-            await ws_manager.broadcast({
-                "type": "tizenbrew_install_progress", "tv_id": tv_id,
-                "step": "certificate", "progress": 5,
-                "message": "Launching tizen certificate (browser will open for Samsung sign-in)…",
-            })
-        cmd = [
+        """Create a developer certificate + security profile via tizen CLI.
+
+        The standard `tizen certificate` command uses: -n, -o, -p, -s, -u, -c, -ct, -a.
+        The `--samsung` flag requires the Samsung Certificate Extension package installed
+        in Tizen Studio's Package Manager. We try with --samsung first (works if the
+        extension is present), and fall back to a standard developer certificate if not.
+        A standard certificate is sufficient for sideloading on most TVs.
+        """
+        async def _broadcast(step: str, msg: str, pct: int) -> None:
+            if tv_id is not None:
+                await ws_manager.broadcast({
+                    "type": "tizenbrew_install_progress", "tv_id": tv_id,
+                    "step": step, "progress": pct, "message": msg,
+                })
+
+        await _broadcast("certificate", "Creating developer certificate…", 5)
+
+        # Common flags supported by all Tizen Studio CLI versions
+        base_flags = [
+            "-p", password,
+            "-o", org,
+            "-s", state,
+            "-u", city,  # -u is 'unit', re-used for city since -ct may not exist
+        ]
+        # Try with Samsung Certificate Extension flags first
+        samsung_cmd = [
             tizen_path, "certificate",
             "-a", profile_name,
-            "-p", password,
+            *base_flags,
             "-c", country,
-            "-s", state,
             "-ct", city,
-            "-o", org,
             "--samsung",
         ]
-        res = await self.run_command(cmd, timeout=300.0, tv_id=tv_id, step="certificate", progress=50)
+        # Standard fallback (works without Samsung Certificate Extension)
+        standard_cmd = [
+            tizen_path, "certificate",
+            "-a", profile_name,
+            *base_flags,
+        ]
+
+        await _broadcast("certificate", "Trying Samsung Certificate Extension…", 10)
+        res = await self.run_command(samsung_cmd, timeout=300.0, tv_id=tv_id, step="certificate", progress=40)
+
+        # If --samsung failed (unrecognised flag → returncode != 0 and help text in output)
+        samsung_ext_missing = res["returncode"] != 0 and (
+            "unrecognized" in res["stdout"].lower()
+            or "unknown" in res["stdout"].lower()
+            or "usage:" in res["stdout"].lower()
+            or "specify the user" in res["stdout"].lower()  # help text printed
+            or "--samsung" not in " ".join(samsung_cmd)  # shouldn't happen, guard
+        )
+
+        if samsung_ext_missing:
+            await _broadcast(
+                "certificate",
+                "Samsung Certificate Extension not installed — creating standard developer certificate instead…",
+                15,
+            )
+            res = await self.run_command(
+                standard_cmd, timeout=60.0, tv_id=tv_id, step="certificate", progress=50,
+            )
+
         success = res["returncode"] == 0
-        if tv_id is not None:
+
+        if success:
+            # Register certificate as a security profile so `tizen package -s` can use it
+            await _broadcast("certificate", "Registering security profile…", 80)
+            profile_cmd = [
+                tizen_path, "security-profiles", "add",
+                "-n", profile_name,
+                "-a", str(self.download_dir / f"{profile_name}.p12"),
+                "-p", password,
+            ]
+            await self.run_command(profile_cmd, timeout=30.0, tv_id=tv_id, step="certificate", progress=90)
+            await _broadcast("certificate", "✓ Certificate + profile created", 100)
             await ws_manager.broadcast({
-                "type": "tizenbrew_install_progress", "tv_id": tv_id,
-                "step": "done" if success else "error",
-                "progress": 100 if success else 0,
-                "message": "Certificate created" if success else f"Certificate failed: {res.get('stderr') or res.get('error') or 'see log'}",
+                "type": "tizenbrew_install_progress", "tv_id": tv_id or 0,
+                "step": "done", "progress": 100,
+                "message": f"Certificate '{profile_name}' created successfully",
             })
-        if success and tv_id is not None:
-            await self.update_state(tv_id, certificate_profile=profile_name)
+            if tv_id is not None:
+                await self.update_state(tv_id, certificate_profile=profile_name)
+        else:
+            err = res.get("stderr") or res.get("error") or "tizen certificate failed"
+            await ws_manager.broadcast({
+                "type": "tizenbrew_install_progress", "tv_id": tv_id or 0,
+                "step": "error", "progress": 0,
+                "message": f"Certificate failed: {err}",
+            })
+
         return {
             "success": success,
             "profile_name": profile_name if success else None,
