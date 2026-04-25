@@ -65,6 +65,15 @@ CURATED_APPS: list[dict[str, Any]] = [
         "source": "brightcraft/moonlight-tizen",
         "category": "Gaming",
     },
+    {
+        "id": "radarr",
+        "name": "Radarrzen",
+        "description": "Movie collection manager for your Samsung TV. Connects to your existing Radarr instance — browse your library, search for movies, and monitor downloads from your couch.",
+        "icon_url": "https://raw.githubusercontent.com/Radarr/Radarr/develop/Logo/256.png",
+        "source_type": "github",
+        "source": "WB2024/radarrzen",
+        "category": "Media",
+    },
 ]
 
 
