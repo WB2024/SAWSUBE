@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     PORT: int = 8000
     POLL_INTERVAL_SECS: int = 20
     FRONTEND_DIST: str = "./frontend/dist"
+    TIZENBREW_DOWNLOAD_DIR: str = "./data/tizenbrew"
+    TIZEN_SDB_PATH: str = ""
+    TIZEN_CLI_PATH: str = ""
 
     @property
     def resolution_tuple(self) -> tuple[int, int]:
@@ -37,5 +40,6 @@ settings = Settings()
 
 # Ensure directories exist
 for p in [settings.IMAGE_FOLDER, settings.TOKEN_DIR, settings.IMAGE_CACHE_DIR,
-          settings.THUMBNAIL_DIR, os.path.dirname(settings.DB_PATH) or "."]:
+          settings.THUMBNAIL_DIR, settings.TIZENBREW_DOWNLOAD_DIR,
+          os.path.dirname(settings.DB_PATH) or "."]:
     Path(p).mkdir(parents=True, exist_ok=True)

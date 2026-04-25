@@ -30,7 +30,7 @@ def _enable_sqlite_fk(dbapi_conn, _record):  # pragma: no cover - hook
 
 async def init_db() -> None:
     # Import models so metadata registers
-    from .models import tv, image, schedule, history, folder  # noqa: F401
+    from .models import tv, image, schedule, history, folder, tizenbrew  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text("PRAGMA foreign_keys=ON"))
