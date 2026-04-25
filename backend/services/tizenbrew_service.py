@@ -73,6 +73,11 @@ CURATED_APPS: list[dict[str, Any]] = [
         "source_type": "github",
         "source": "WB2024/radarrzen",
         "category": "Media",
+        "inject_config": {
+            "storage_key": "radarrzen-config",
+            "config_file": "js/sawsube-config.js",
+            "fields": {"url": "RADARR_URL", "apiKey": "RADARR_API_KEY"},
+        },
     },
 ]
 
@@ -522,6 +527,70 @@ class TizenBrewService:
                 })
             return {"path": None, "version": None, "error": str(e)}
 
+    async def inject_app_config(self, app_def: dict[str, Any], wgt_path: str) -> str:
+        """
+        If app_def has inject_config, read values from settings and write a
+        pre-seed JS file into the WGT before it gets re-signed.  The WGT on
+        GitHub stays credential-free; credentials are injected locally only.
+        Returns the (possibly new) wgt_path.
+        """
+        import zipfile
+        import tempfile
+        import json as _json
+
+        inject_cfg = app_def.get("inject_config")
+        if not inject_cfg:
+            return wgt_path
+
+        storage_key: str = inject_cfg["storage_key"]
+        config_file: str = inject_cfg.get("config_file", "js/sawsube-config.js")
+        fields: dict[str, str] = inject_cfg.get("fields", {})
+
+        config: dict[str, str] = {}
+        for js_key, settings_attr in fields.items():
+            val = getattr(settings, settings_attr, "") or ""
+            if val:
+                config[js_key] = val
+
+        if not config:
+            return wgt_path  # nothing configured in .env, leave as-is
+
+        config_js = (
+            "(function(){{"
+            "var k={key};try{{if(!localStorage.getItem(k)){{"
+            "localStorage.setItem(k,JSON.stringify({val}));}}"
+            "}}catch(e){{}}}})()"
+        ).format(key=_json.dumps(storage_key), val=_json.dumps(config))
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="sawsube_inject_"))
+        out_wgt = Path(wgt_path).parent / f"_cfg_{Path(wgt_path).name}"
+        try:
+            with zipfile.ZipFile(wgt_path, "r") as zin:
+                zin.extractall(tmp_dir)
+
+            cfg_file_path = tmp_dir / Path(config_file)
+            cfg_file_path.parent.mkdir(parents=True, exist_ok=True)
+            cfg_file_path.write_text(config_js, encoding="utf-8")
+
+            # Repack — config.xml must be the first entry in a Tizen WGT
+            with zipfile.ZipFile(out_wgt, "w", zipfile.ZIP_DEFLATED) as zout:
+                cfg_xml = tmp_dir / "config.xml"
+                if cfg_xml.is_file():
+                    zout.write(cfg_xml, "config.xml")
+                for fp in sorted(tmp_dir.rglob("*")):
+                    if fp.is_file() and fp.resolve() != cfg_xml.resolve():
+                        zout.write(fp, fp.relative_to(tmp_dir).as_posix())
+
+            log.info("Injected config for app '%s' into WGT", app_def.get("id"))
+            return str(out_wgt)
+        except Exception as e:
+            log.warning("Config injection failed for '%s': %s", app_def.get("id"), e)
+            if out_wgt.exists():
+                out_wgt.unlink()
+            return wgt_path
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
     async def resign_wgt(
         self, tizen_path: str, wgt_path: str, profile_name: str, output_dir: str,
         tv_id: int | None = None,
@@ -798,6 +867,7 @@ class TizenBrewService:
                 return
 
             wgt_path = fetched["path"]
+            wgt_path = await self.inject_app_config(app_def, wgt_path)
             info = await self.fetch_tv_api_info(tv.ip)
             need_cert = info.get("requires_certificate", False)
             if need_cert and wgt_path.lower().endswith(".wgt"):

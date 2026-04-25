@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     TIZENBREW_DOWNLOAD_DIR: str = "./data/tizenbrew"
     TIZEN_SDB_PATH: str = ""
     TIZEN_CLI_PATH: str = ""
+    RADARR_URL: str = ""
+    RADARR_API_KEY: str = ""
 
     @property
     def resolution_tuple(self) -> tuple[int, int]:
