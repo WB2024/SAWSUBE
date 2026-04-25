@@ -1009,8 +1009,13 @@ class TizenBrewService:
 
             # Step 1: Package WGT from source
             await _broadcast(f"Packaging WGT from {src_path} (profile: {profile_name})…", 10)
-            out_dir = str(self.download_dir / "radarrzen_build")
-            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            out_dir_path = self.download_dir / "radarrzen_build"
+            out_dir = str(out_dir_path)
+            # Clean old build artifacts so glob can't pick up stale _cfg_*.wgt files
+            if out_dir_path.exists():
+                for old in out_dir_path.glob("*.wgt"):
+                    old.unlink(missing_ok=True)
+            out_dir_path.mkdir(parents=True, exist_ok=True)
 
             # tizen package --type wgt --sign <profile> -o <out_dir> -- <src_dir>
             pkg_res = await self.run_command(
