@@ -181,3 +181,16 @@ async def installed_apps(tv_id: int, s: AsyncSession = Depends(get_session)):
         .order_by(TizenBrewInstalledApp.installed_at.desc())
     )).scalars().all()
     return rows
+
+
+# ── Radarrzen local build + install ──────────────────────────────────────────
+@router.post("/{tv_id}/build-install-radarrzen", response_model=JobStarted, status_code=202)
+async def build_install_radarrzen(tv_id: int, s: AsyncSession = Depends(get_session)):
+    """Build Radarrzen WGT from local source (RADARRZEN_SRC_PATH), inject Radarr
+    credentials, re-sign if required, and install onto the TV."""
+    tv = await s.get(TV, tv_id)
+    if not tv:
+        raise HTTPException(404, "TV not found")
+    job_id = uuid.uuid4().hex
+    asyncio.create_task(tizenbrew_service.build_and_install_radarrzen(tv_id))
+    return JobStarted(started=True, job_id=job_id)

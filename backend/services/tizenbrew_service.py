@@ -918,6 +918,123 @@ class TizenBrewService:
                 "step": "error", "progress": 0, "message": str(e),
             })
 
+    # ── Radarrzen local build + install ────────────────────────────────────
+    async def build_and_install_radarrzen(self, tv_id: int) -> None:
+        """Build Radarrzen WGT from local source, inject config, sign if needed, install."""
+        async def _broadcast(msg: str, pct: int, step: str = "building") -> None:
+            await ws_manager.broadcast({
+                "type": "tizenbrew_install_progress",
+                "tv_id": tv_id, "step": step, "progress": pct, "message": msg,
+            })
+
+        try:
+            src_path = getattr(settings, "RADARRZEN_SRC_PATH", "") or ""
+            profile_name = getattr(settings, "RADARRZEN_TIZEN_PROFILE", "SAWSUBE") or "SAWSUBE"
+
+            if not src_path or not Path(src_path).is_dir():
+                await _broadcast(
+                    f"RADARRZEN_SRC_PATH not set or not found ('{src_path}'). "
+                    "Set it in .env to point at the radarrzen/src directory.",
+                    0, "error",
+                )
+                return
+
+            tools = await self.find_tizen_tools()
+            if not tools["tizen_path"]:
+                await _broadcast("Tizen Studio CLI not found. Install Tizen Studio or set TIZEN_CLI_PATH.", 0, "error")
+                return
+            if not tools["sdb_path"]:
+                await _broadcast("sdb not found. Install Tizen Studio or set TIZEN_SDB_PATH.", 0, "error")
+                return
+
+            async with SessionLocal() as s:
+                tv = await s.get(TV, tv_id)
+            if not tv:
+                await _broadcast("TV not found in DB.", 0, "error")
+                return
+
+            # Step 1: Package WGT from source
+            await _broadcast(f"Packaging WGT from {src_path} (profile: {profile_name})…", 10)
+            out_dir = str(self.download_dir / "radarrzen_build")
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+
+            # tizen package --type wgt --sign <profile> -o <out_dir> -- <src_dir>
+            pkg_res = await self.run_command(
+                [tools["tizen_path"], "package",
+                 "--type", "wgt",
+                 "--sign", profile_name,
+                 "-o", out_dir,
+                 "--", src_path],
+                timeout=120.0, tv_id=tv_id, step="building", progress=20,
+            )
+            if pkg_res["returncode"] != 0:
+                await _broadcast(
+                    f"Build failed (exit {pkg_res['returncode']}): "
+                    f"{pkg_res.get('stderr') or pkg_res['stdout'][-400:]}",
+                    0, "error",
+                )
+                return
+
+            # Find the produced WGT
+            wgt_files = list(Path(out_dir).glob("*.wgt"))
+            if not wgt_files:
+                # Also check if tizen placed it inside the src dir
+                wgt_files = list(Path(src_path).glob("*.wgt"))
+                if wgt_files:
+                    target = self.download_dir / "radarrzen_build" / wgt_files[0].name
+                    shutil.move(str(wgt_files[0]), target)
+                    wgt_files = [target]
+            if not wgt_files:
+                await _broadcast("Build produced no .wgt file — check your Tizen profile and src path.", 0, "error")
+                return
+
+            wgt_path = str(wgt_files[0])
+            await _broadcast(f"Built: {Path(wgt_path).name}", 40)
+
+            # Step 2: Inject Radarr credentials from settings
+            radarr_app_def = next(
+                (a for a in CURATED_APPS if a.get("id") == "radarr"), None
+            )
+            if radarr_app_def:
+                wgt_path = await self.inject_app_config(radarr_app_def, wgt_path, tv_id=tv_id)
+                await _broadcast("Config injected.", 55)
+
+            # Step 3: Re-sign if TV requires cert (Tizen 7+)
+            info = await self.fetch_tv_api_info(tv.ip)
+            if info.get("requires_certificate"):
+                await _broadcast("Tizen 7+ TV — re-signing with certificate…", 60, "resigning")
+                rs = await self.resign_wgt(
+                    tools["tizen_path"], wgt_path, profile_name,
+                    str(self.download_dir / "radarrzen_build" / "signed"), tv_id=tv_id,
+                )
+                if rs.get("error"):
+                    await _broadcast(f"Re-sign failed: {rs['error']}", 0, "error")
+                    return
+                wgt_path = rs["resigned_path"] or wgt_path
+
+            # Step 4: Install
+            res = await self.install_wgt(tools["sdb_path"], tools["tizen_path"], tv.ip, wgt_path, tv_id)
+            if res["success"]:
+                await self.update_state(tv_id, sdb_connected=True, notes=None)
+                async with SessionLocal() as s:
+                    s.add(TizenBrewInstalledApp(
+                        tv_id=tv_id,
+                        app_name="Radarrzen",
+                        app_source="local:radarrzen/src",
+                        wgt_path=wgt_path,
+                        version="local-build",
+                    ))
+                    await s.commit()
+            else:
+                await self.update_state(tv_id, notes=res.get("error") or "install failed")
+
+        except Exception as e:
+            log.exception("build_and_install_radarrzen crashed")
+            await ws_manager.broadcast({
+                "type": "tizenbrew_install_progress", "tv_id": tv_id,
+                "step": "error", "progress": 0, "message": f"Build error: {e}",
+            })
+
     # ── Module scaffolder ──────────────────────────────────────────────────
     def generate_module_scaffold(self, data: CustomModuleCreate) -> dict[str, Any]:
         pkg_name = re.sub(r"[^a-z0-9\-]", "-", data.package_name.lower()).strip("-")
