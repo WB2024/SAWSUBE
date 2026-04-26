@@ -93,6 +93,15 @@ CURATED_APPS: list[dict[str, Any]] = [
             "fields": {"url": "SONARR_URL", "apiKey": "SONARR_API_KEY", "sawsubeUrl": "SAWSUBE_URL"},
         },
     },
+    {
+        "id": "fieshzen",
+        "name": "Fieshzen",
+        "description": "Full-featured music player for your Samsung TV. Connects to your Navidrome (or OpenSubsonic-compatible) server — browse albums, artists, playlists, view lyrics, and listen to your music collection from your couch.",
+        "icon_url": "https://raw.githubusercontent.com/jeffvli/feishin/main/resources/icons/icon.png",
+        "source_type": "local_build",
+        "source": "local:fieshzen",
+        "category": "Music",
+    },
 ]
 
 
@@ -280,6 +289,7 @@ class TizenBrewService:
         tv_id: int | None = None,
         step: str = "",
         progress: int = 0,
+        cwd: str | None = None,
     ) -> dict[str, Any]:
         log.info("tizenbrew: running %s", " ".join(cmd))
         try:
@@ -287,6 +297,7 @@ class TizenBrewService:
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                cwd=cwd,
             )
         except FileNotFoundError as e:
             return {"returncode": -1, "stdout": "", "stderr": str(e), "error": str(e)}
@@ -1221,6 +1232,358 @@ class TizenBrewService:
                 "type": "tizenbrew_install_progress", "tv_id": tv_id,
                 "step": "error", "progress": 0, "message": f"Build error: {e}",
             })
+
+    # ── Fieshzen local build + install ────────────────────────────────────────
+    async def build_and_install_fieshzen(self, tv_id: int) -> None:
+        """Build Fieshzen WGT from Feishin web source, inject Navidrome auth,
+        sign, and install onto the TV."""
+        import tempfile
+
+        async def _broadcast(msg: str, pct: int, step: str = "building") -> None:
+            await ws_manager.broadcast({
+                "type": "tizenbrew_install_progress",
+                "tv_id": tv_id, "step": step, "progress": pct, "message": msg,
+            })
+
+        try:
+            feishin_src = getattr(settings, "FIESHZEN_FEISHIN_SRC_PATH", "") or ""
+            fieshzen_src = getattr(settings, "FIESHZEN_SRC_PATH", "") or ""
+            profile_name = getattr(settings, "FIESHZEN_TIZEN_PROFILE", "SAWSUBE") or "SAWSUBE"
+            nd_url = getattr(settings, "NAVIDROME_URL", "") or ""
+            nd_user = getattr(settings, "NAVIDROME_USERNAME", "") or ""
+            nd_pass = getattr(settings, "NAVIDROME_PASSWORD", "") or ""
+            nd_name = getattr(settings, "NAVIDROME_SERVER_NAME", "") or nd_user
+
+            if not feishin_src or not Path(feishin_src).is_dir():
+                await _broadcast(
+                    f"FIESHZEN_FEISHIN_SRC_PATH not set or not found ('{feishin_src}'). "
+                    "Set it in .env to point at the feishin source directory.",
+                    0, "error",
+                )
+                return
+            if not fieshzen_src or not Path(fieshzen_src).is_dir():
+                await _broadcast(
+                    f"FIESHZEN_SRC_PATH not set or not found ('{fieshzen_src}'). "
+                    "Set it in .env to point at the Fieshzen repo directory.",
+                    0, "error",
+                )
+                return
+
+            tools = await self.find_tizen_tools()
+            if not tools["tizen_path"]:
+                await _broadcast("Tizen Studio CLI not found.", 0, "error")
+                return
+            if not tools["sdb_path"]:
+                await _broadcast("sdb not found.", 0, "error")
+                return
+
+            async with SessionLocal() as s:
+                tv = await s.get(TV, tv_id)
+            if not tv:
+                await _broadcast("TV not found in DB.", 0, "error")
+                return
+
+            # ── Step 1: authenticate with Navidrome ───────────────────────
+            await _broadcast("Authenticating with Navidrome…", 5)
+            nd_auth: dict[str, Any] = {}
+            if nd_url and nd_user and nd_pass:
+                try:
+                    async with httpx.AsyncClient(timeout=15.0) as client:
+                        r = await client.post(
+                            f"{nd_url.rstrip('/')}/auth/login",
+                            json={"username": nd_user, "password": nd_pass},
+                            headers={"Content-Type": "application/json"},
+                        )
+                        if r.status_code == 200:
+                            nd_auth = r.json()
+                            await _broadcast(
+                                f"Navidrome auth OK (user: {nd_auth.get('username', nd_user)})",
+                                8,
+                            )
+                        else:
+                            await _broadcast(
+                                f"Navidrome auth failed (HTTP {r.status_code}) — "
+                                "building without pre-seeded credentials",
+                                8,
+                            )
+                except Exception as e:
+                    await _broadcast(f"Navidrome unreachable: {e} — building without auth", 8)
+            else:
+                await _broadcast(
+                    "NAVIDROME_URL/USERNAME/PASSWORD not set — skipping auth pre-seed", 8,
+                )
+
+            # ── Step 2: pnpm install ───────────────────────────────────────
+            pnpm_path = shutil.which("pnpm")
+            if not pnpm_path:
+                await _broadcast(
+                    "pnpm not found on PATH. Install pnpm: npm install -g pnpm", 0, "error",
+                )
+                return
+
+            await _broadcast("Running pnpm install in feishin source…", 10)
+            install_res = await self.run_command(
+                [pnpm_path, "install", "--frozen-lockfile"],
+                timeout=600.0,
+                cwd=feishin_src,
+                tv_id=tv_id, step="building", progress=12,
+            )
+            if install_res["returncode"] != 0:
+                await _broadcast(
+                    f"pnpm install failed: {install_res.get('stderr') or install_res['stdout'][-400:]}",
+                    0, "error",
+                )
+                return
+
+            # ── Step 3: pnpm build:web ────────────────────────────────────
+            await _broadcast("Building Feishin web app (pnpm build:web)…", 20)
+            build_res = await self.run_command(
+                [pnpm_path, "build:web"],
+                timeout=900.0,
+                cwd=feishin_src,
+                tv_id=tv_id, step="building", progress=25,
+            )
+            if build_res["returncode"] != 0:
+                await _broadcast(
+                    f"pnpm build:web failed: {build_res.get('stderr') or build_res['stdout'][-400:]}",
+                    0, "error",
+                )
+                return
+
+            web_out = Path(feishin_src) / "out" / "web"
+            if not web_out.is_dir() or not (web_out / "index.html").is_file():
+                await _broadcast(
+                    "Build produced no out/web/index.html — check feishin build output.",
+                    0, "error",
+                )
+                return
+            await _broadcast(f"Web build complete: {web_out}", 45)
+
+            # ── Step 4: assemble WGT directory ─────────────────────────────
+            await _broadcast("Assembling WGT directory…", 48)
+            tmp_dir = Path(tempfile.mkdtemp(prefix="fieshzen_wgt_"))
+            try:
+                shutil.copytree(str(web_out), str(tmp_dir), dirs_exist_ok=True)
+
+                config_xml_src = Path(fieshzen_src) / "tizen" / "config.xml"
+                if not config_xml_src.is_file():
+                    await _broadcast(f"config.xml not found at {config_xml_src}", 0, "error")
+                    return
+                shutil.copy(config_xml_src, tmp_dir / "config.xml")
+
+                patches_dir = Path(fieshzen_src) / "patches"
+                for patch_file in ("tizen-compat.js", "tizen-fixes.css"):
+                    src = patches_dir / patch_file
+                    if src.is_file():
+                        shutil.copy(src, tmp_dir / patch_file)
+                    else:
+                        await _broadcast(f"Warning: patch file not found: {src}", 48)
+
+                # ── Step 5: write settings.js ───────────────────────────────
+                await _broadcast("Writing settings.js…", 50)
+                settings_js = self._generate_fieshzen_settings_js(
+                    server_url=nd_url or "",
+                    server_name=nd_name or nd_user or "",
+                )
+                (tmp_dir / "settings.js").write_text(settings_js, encoding="utf-8")
+
+                # ── Step 6: write fieshzen-auth.js (if auth succeeded) ─────
+                if nd_auth:
+                    await _broadcast("Writing fieshzen-auth.js…", 52)
+                    auth_js = self._generate_fieshzen_auth_js(
+                        server_url=nd_url,
+                        server_name=nd_name,
+                        auth=nd_auth,
+                    )
+                    (tmp_dir / "fieshzen-auth.js").write_text(auth_js, encoding="utf-8")
+
+                    await _broadcast("Patching index.html with auth + compat scripts…", 54)
+                    index_html_path = tmp_dir / "index.html"
+                    index_html = index_html_path.read_text(encoding="utf-8")
+                    inject_block = (
+                        '<script src="fieshzen-auth.js"></script>\n'
+                        '    <script src="settings.js"></script>\n'
+                        '    <link rel="stylesheet" href="tizen-fixes.css">\n'
+                        '    <script src="tizen-compat.js"></script>'
+                    )
+                    if '<script src="settings.js"></script>' in index_html:
+                        index_html = index_html.replace(
+                            '<script src="settings.js"></script>',
+                            inject_block,
+                            1,
+                        )
+                    else:
+                        index_html = index_html.replace(
+                            '</head>',
+                            f'    {inject_block}\n  </head>',
+                            1,
+                        )
+                    index_html_path.write_text(index_html, encoding="utf-8")
+                else:
+                    # no auth — still inject compat scripts
+                    index_html_path = tmp_dir / "index.html"
+                    index_html = index_html_path.read_text(encoding="utf-8")
+                    inject_block = (
+                        '<script src="settings.js"></script>\n'
+                        '    <link rel="stylesheet" href="tizen-fixes.css">\n'
+                        '    <script src="tizen-compat.js"></script>'
+                    )
+                    if '<script src="settings.js"></script>' in index_html:
+                        index_html = index_html.replace(
+                            '<script src="settings.js"></script>',
+                            inject_block,
+                            1,
+                        )
+                    else:
+                        index_html = index_html.replace(
+                            '</head>',
+                            f'    {inject_block}\n  </head>',
+                            1,
+                        )
+                    index_html_path.write_text(index_html, encoding="utf-8")
+
+                # ── Step 7: package WGT ────────────────────────────────────
+                await _broadcast(f"Packaging WGT (profile: {profile_name})…", 58)
+                out_dir_path = self.download_dir / "fieshzen_build"
+                out_dir_path.mkdir(parents=True, exist_ok=True)
+                for old in out_dir_path.glob("*.wgt"):
+                    old.unlink(missing_ok=True)
+
+                pkg_res = await self.run_command(
+                    [tools["tizen_path"], "package",
+                     "--type", "wgt",
+                     "--sign", profile_name,
+                     "-o", str(out_dir_path),
+                     "--", str(tmp_dir)],
+                    timeout=300.0, tv_id=tv_id, step="building", progress=65,
+                )
+                if pkg_res["returncode"] != 0:
+                    await _broadcast(
+                        f"WGT packaging failed: {pkg_res.get('stderr') or pkg_res['stdout'][-400:]}",
+                        0, "error",
+                    )
+                    return
+
+                wgt_files = list(out_dir_path.glob("*.wgt"))
+                if not wgt_files:
+                    await _broadcast("No .wgt file produced — check Tizen profile.", 0, "error")
+                    return
+
+                wgt_path = str(wgt_files[0])
+                await _broadcast(f"Built: {Path(wgt_path).name}", 70)
+
+            finally:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+            # ── Step 8: re-sign if TV requires it ─────────────────────────
+            info = await self.fetch_tv_api_info(tv.ip)
+            if info.get("requires_certificate"):
+                state = await self.get_or_create_state(tv_id)
+                if state.certificate_profile:
+                    await _broadcast("Re-signing for Tizen 7+ TV…", 72, "resigning")
+                    rs = await self.resign_wgt(
+                        tools["tizen_path"], wgt_path, state.certificate_profile,
+                        str(self.download_dir / "fieshzen_build" / "signed"), tv_id=tv_id,
+                    )
+                    if rs.get("error"):
+                        await _broadcast(f"Re-sign failed: {rs['error']}", 0, "error")
+                        return
+                    wgt_path = rs["resigned_path"] or wgt_path
+
+            # ── Step 9: install ────────────────────────────────────────────
+            res = await self.install_wgt(
+                tools["sdb_path"], tools["tizen_path"], tv.ip, wgt_path, tv_id,
+            )
+            if res["success"]:
+                await self.update_state(tv_id, sdb_connected=True, notes=None)
+                async with SessionLocal() as s:
+                    s.add(TizenBrewInstalledApp(
+                        tv_id=tv_id,
+                        app_name="Fieshzen",
+                        app_source="local:fieshzen",
+                        wgt_path=wgt_path,
+                        version="local-build",
+                    ))
+                    await s.commit()
+            else:
+                await self.update_state(tv_id, notes=res.get("error") or "install failed")
+
+        except Exception as e:
+            log.exception("build_and_install_fieshzen crashed")
+            await ws_manager.broadcast({
+                "type": "tizenbrew_install_progress", "tv_id": tv_id,
+                "step": "error", "progress": 0, "message": f"Build error: {e}",
+            })
+
+    def _generate_fieshzen_settings_js(
+        self, server_url: str, server_name: str,
+    ) -> str:
+        """Generate the settings.js content for Feishin web build."""
+        return f'''"use strict";
+
+window.SERVER_URL = {json.dumps(server_url)};
+window.SERVER_NAME = {json.dumps(server_name)};
+window.SERVER_TYPE = "navidrome";
+window.SERVER_LOCK = "true";
+window.LEGACY_AUTHENTICATION = "false";
+window.ANALYTICS_DISABLED = "true";
+window.REMOTE_URL = "";
+
+window.FS_GENERAL_THEME = "defaultDark";
+window.FS_GENERAL_THEME_DARK = "defaultDark";
+window.FS_GENERAL_FOLLOW_CURRENT_SONG = "true";
+window.FS_GENERAL_HOME_FEATURE = "true";
+window.FS_GENERAL_SHOW_LYRICS_IN_SIDEBAR = "false";
+window.FS_PLAYBACK_MEDIA_SESSION = "true";
+window.FS_PLAYBACK_SCROBBLE_ENABLED = "false";
+window.FS_PLAYBACK_TRANSCODE_ENABLED = "false";
+window.FS_LYRICS_FETCH = "true";
+window.FS_LYRICS_FOLLOW = "true";
+window.FS_DISCORD_ENABLED = "false";
+window.FS_AUTO_DJ_ENABLED = "false";
+'''
+
+    def _generate_fieshzen_auth_js(
+        self, server_url: str, server_name: str, auth: dict[str, Any],
+    ) -> str:
+        """Generate fieshzen-auth.js — pre-seeds Zustand auth state to bypass login."""
+        user_id = auth.get("id", "")
+        username = auth.get("username", "")
+        is_admin = bool(auth.get("isAdmin", False))
+        salt = auth.get("subsonicSalt", "")
+        token = auth.get("subsonicToken", "")
+        jwt = auth.get("token", "")
+        credential = f"u={username}&s={salt}&t={token}&v=1.16.1&c=fieshzen"
+        server_id = "fieshzen-navidrome-auto"
+        server = {
+            "id": server_id,
+            "name": server_name or username,
+            "url": server_url,
+            "type": "navidrome",
+            "username": username,
+            "userId": user_id,
+            "credential": credential,
+            "ndCredential": jwt,
+            "isAdmin": is_admin,
+            "savePassword": True,
+        }
+        state = {
+            "state": {
+                "currentServer": server,
+                "deviceId": "fieshzen-tv-device-001",
+                "serverList": {server_id: server},
+            },
+            "version": 2,
+        }
+        state_json = json.dumps(state, separators=(",", ":"))
+        return (
+            "(function(){\n"
+            '  var AUTH_KEY="store_authentication";\n'
+            "  try{\n"
+            f"    localStorage.setItem(AUTH_KEY,{json.dumps(state_json)});\n"
+            "  }catch(e){console.error(\"Fieshzen auth pre-seed failed:\",e);}\n"
+            "})();\n"
+        )
 
     # ── Module scaffolder ──────────────────────────────────────────────────
     def generate_module_scaffold(self, data: CustomModuleCreate) -> dict[str, Any]:

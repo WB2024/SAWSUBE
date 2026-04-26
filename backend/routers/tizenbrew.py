@@ -207,3 +207,16 @@ async def build_install_sonarrzen(tv_id: int, s: AsyncSession = Depends(get_sess
     job_id = uuid.uuid4().hex
     asyncio.create_task(tizenbrew_service.build_and_install_sonarrzen(tv_id))
     return JobStarted(started=True, job_id=job_id)
+
+
+# ── Fieshzen local build + install ───────────────────────────────────────────
+@router.post("/{tv_id}/build-install-fieshzen", response_model=JobStarted, status_code=202)
+async def build_install_fieshzen(tv_id: int, s: AsyncSession = Depends(get_session)):
+    """Build Fieshzen WGT from Feishin web source, inject Navidrome credentials,
+    re-sign if required, and install onto the TV."""
+    tv = await s.get(TV, tv_id)
+    if not tv:
+        raise HTTPException(404, "TV not found")
+    job_id = uuid.uuid4().hex
+    asyncio.create_task(tizenbrew_service.build_and_install_fieshzen(tv_id))
+    return JobStarted(started=True, job_id=job_id)
