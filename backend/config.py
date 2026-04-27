@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     FIESHZEN_SRC_PATH: str = ""
     FIESHZEN_TIZEN_PROFILE: str = "SAWSUBE"
 
+    # Castafiorezen
+    CASTAFIOREZEN_SRC_PATH: str = ""
+    CASTAFIOREZEN_TIZEN_PROFILE: str = "SAWSUBE"
+
     @property
     def resolution_tuple(self) -> tuple[int, int]:
         return (3840, 2160) if self.TV_RESOLUTION.upper() == "4K" else (1920, 1080)

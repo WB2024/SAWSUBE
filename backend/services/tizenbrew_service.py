@@ -102,6 +102,24 @@ CURATED_APPS: list[dict[str, Any]] = [
         "source": "local:fieshzen",
         "category": "Music",
     },
+    {
+        "id": "castafiorezen",
+        "name": "Castafiorezen",
+        "description": "Native Tizen music player for Navidrome / Subsonic — built from scratch in ES5 for Samsung TVs. Lightweight, remote-friendly, AVPlay-backed audio.",
+        "icon_url": "https://raw.githubusercontent.com/jeffvli/feishin/main/resources/icons/icon.png",
+        "source_type": "local_build",
+        "source": "local:castafiorezen",
+        "category": "Music",
+        "inject_config": {
+            "storage_key": "cz-server",
+            "config_file": "js/sawsube-config.js",
+            "fields": {
+                "serverUrl": "NAVIDROME_URL",
+                "username": "NAVIDROME_USERNAME",
+                "password": "NAVIDROME_PASSWORD",
+            },
+        },
+    },
 ]
 
 
@@ -1512,6 +1530,153 @@ class TizenBrewService:
 
         except Exception as e:
             log.exception("build_and_install_fieshzen crashed")
+            await ws_manager.broadcast({
+                "type": "tizenbrew_install_progress", "tv_id": tv_id,
+                "step": "error", "progress": 0, "message": f"Build error: {e}",
+            })
+
+    # ── Castafiorezen local build + install ──────────────────────────────────
+    async def build_and_install_castafiorezen(self, tv_id: int) -> None:
+        """Build Castafiorezen WGT from local src/ folder, inject Navidrome
+        credentials into js/sawsube-config.js, sign, and install onto the TV."""
+        import tempfile
+
+        async def _broadcast(msg: str, pct: int, step: str = "building") -> None:
+            await ws_manager.broadcast({
+                "type": "tizenbrew_install_progress",
+                "tv_id": tv_id, "step": step, "progress": pct, "message": msg,
+            })
+
+        try:
+            cz_src = getattr(settings, "CASTAFIOREZEN_SRC_PATH", "") or ""
+            profile_name = (
+                getattr(settings, "CASTAFIOREZEN_TIZEN_PROFILE", "SAWSUBE") or "SAWSUBE"
+            )
+            nd_url = getattr(settings, "NAVIDROME_URL", "") or ""
+            nd_user = getattr(settings, "NAVIDROME_USERNAME", "") or ""
+            nd_pass = getattr(settings, "NAVIDROME_PASSWORD", "") or ""
+
+            if not cz_src or not Path(cz_src).is_dir():
+                await _broadcast(
+                    f"CASTAFIOREZEN_SRC_PATH not set or not found ('{cz_src}'). "
+                    "Set it in .env to point at the Castafiorezen repo directory.",
+                    0, "error",
+                )
+                return
+            cz_src_dir = Path(cz_src) / "src"
+            if not cz_src_dir.is_dir():
+                await _broadcast(
+                    f"Castafiorezen src/ folder not found at {cz_src_dir}", 0, "error",
+                )
+                return
+            if not (nd_url and nd_user and nd_pass):
+                await _broadcast(
+                    "NAVIDROME_URL/USERNAME/PASSWORD not set — required for Castafiorezen.",
+                    0, "error",
+                )
+                return
+
+            tools = await self.find_tizen_tools()
+            if not tools["tizen_path"]:
+                await _broadcast("Tizen Studio CLI not found.", 0, "error")
+                return
+            if not tools["sdb_path"]:
+                await _broadcast("sdb not found.", 0, "error")
+                return
+
+            async with SessionLocal() as s:
+                tv = await s.get(TV, tv_id)
+            if not tv:
+                await _broadcast("TV not found in DB.", 0, "error")
+                return
+
+            await _broadcast("Assembling Castafiorezen WGT directory…", 20)
+            tmp_dir = Path(tempfile.mkdtemp(prefix="castafiorezen_wgt_"))
+            try:
+                shutil.copytree(str(cz_src_dir), str(tmp_dir), dirs_exist_ok=True)
+
+                # Inject credentials into sawsube-config.js
+                cfg = {
+                    "serverUrl": nd_url,
+                    "username": nd_user,
+                    "password": nd_pass,
+                }
+                cfg_js = (
+                    "(function(){var k='cz-server';try{"
+                    "if(!localStorage.getItem(k)){"
+                    f"localStorage.setItem(k,JSON.stringify({json.dumps(cfg)}));"
+                    "}}catch(e){}})();\n"
+                )
+                cfg_path = tmp_dir / "js" / "sawsube-config.js"
+                cfg_path.parent.mkdir(parents=True, exist_ok=True)
+                cfg_path.write_text(cfg_js, encoding="utf-8")
+                await _broadcast("Injected Navidrome credentials.", 35)
+
+                await _broadcast(f"Packaging WGT (profile: {profile_name})…", 50)
+                out_dir_path = self.download_dir / "castafiorezen_build"
+                out_dir_path.mkdir(parents=True, exist_ok=True)
+                for old in out_dir_path.glob("*.wgt"):
+                    old.unlink(missing_ok=True)
+
+                pkg_res = await self.run_command(
+                    [tools["tizen_path"], "package",
+                     "--type", "wgt",
+                     "--sign", profile_name,
+                     "-o", str(out_dir_path),
+                     "--", str(tmp_dir)],
+                    timeout=300.0, tv_id=tv_id, step="building", progress=60,
+                )
+                if pkg_res["returncode"] != 0:
+                    await _broadcast(
+                        f"WGT packaging failed: {pkg_res.get('stderr') or pkg_res['stdout'][-400:]}",
+                        0, "error",
+                    )
+                    return
+
+                wgt_files = list(out_dir_path.glob("*.wgt"))
+                if not wgt_files:
+                    await _broadcast("No .wgt file produced — check Tizen profile.", 0, "error")
+                    return
+                wgt_path = str(wgt_files[0])
+                await _broadcast(f"Built: {Path(wgt_path).name}", 70)
+
+            finally:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+            # Re-sign if TV requires it
+            info = await self.fetch_tv_api_info(tv.ip)
+            if info.get("requires_certificate"):
+                state = await self.get_or_create_state(tv_id)
+                if state.certificate_profile:
+                    await _broadcast("Re-signing for Tizen 7+ TV…", 75, "resigning")
+                    rs = await self.resign_wgt(
+                        tools["tizen_path"], wgt_path, state.certificate_profile,
+                        str(self.download_dir / "castafiorezen_build" / "signed"), tv_id=tv_id,
+                    )
+                    if rs.get("error"):
+                        await _broadcast(f"Re-sign failed: {rs['error']}", 0, "error")
+                        return
+                    wgt_path = rs["resigned_path"] or wgt_path
+
+            res = await self.install_wgt(
+                tools["sdb_path"], tools["tizen_path"], tv.ip, wgt_path, tv_id,
+            )
+            if res["success"]:
+                await self.update_state(tv_id, sdb_connected=True, notes=None)
+                async with SessionLocal() as s:
+                    s.add(TizenBrewInstalledApp(
+                        tv_id=tv_id,
+                        app_name="Castafiorezen",
+                        app_source="local:castafiorezen",
+                        wgt_path=wgt_path,
+                        version="local-build",
+                    ))
+                    await s.commit()
+            else:
+                await self.update_state(tv_id, notes=res.get("error") or "install failed")
+
+        except Exception as e:
+            log.exception("build_and_install_castafiorezen crashed")
             await ws_manager.broadcast({
                 "type": "tizenbrew_install_progress", "tv_id": tv_id,
                 "step": "error", "progress": 0, "message": f"Build error: {e}",
