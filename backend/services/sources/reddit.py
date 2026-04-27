@@ -1,9 +1,13 @@
 from __future__ import annotations
 import asyncio
 import html
+import json as _json
 import logging
 import re
-import httpx
+import ssl
+import urllib.error
+import urllib.parse
+import urllib.request
 from ...config import settings
 
 log = logging.getLogger(__name__)
@@ -11,6 +15,15 @@ log = logging.getLogger(__name__)
 _last_call = 0.0
 _lock = asyncio.Lock()
 _SUB_RE = re.compile(r"^[A-Za-z0-9_]{1,50}$")
+_SSL_CTX = ssl.create_default_context()
+
+
+def _fetch_reddit_json(url: str, params: dict, user_agent: str) -> dict:
+    """Synchronous urllib fetch — avoids httpx TLS fingerprint blocking by Reddit/Cloudflare."""
+    full_url = url + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(full_url, headers={"User-Agent": user_agent})
+    with urllib.request.urlopen(req, context=_SSL_CTX, timeout=15) as resp:
+        return _json.loads(resp.read().decode())
 
 
 async def fetch(sub: str, sort: str = "top", t: str = "week", limit: int = 20) -> list[dict]:
@@ -29,18 +42,17 @@ async def fetch(sub: str, sort: str = "top", t: str = "week", limit: int = 20) -
             await asyncio.sleep(delay)
         url = f"https://www.reddit.com/r/{sub}/{sort}.json"
         params = {"limit": limit, "t": t}
-        headers = {"User-Agent": settings.REDDIT_USER_AGENT}
-        async with httpx.AsyncClient(timeout=15.0, headers=headers) as c:
-            r = await c.get(url, params=params)
-            try:
-                r.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                log.warning(
-                    "Reddit fetch blocked (HTTP %s) — API now requires OAuth2: %s",
-                    exc.response.status_code, url,
-                )
-                return []
-            j = r.json()
+        user_agent = settings.REDDIT_USER_AGENT
+        try:
+            j = await loop.run_in_executor(
+                None, _fetch_reddit_json, url, params, user_agent
+            )
+        except urllib.error.HTTPError as exc:
+            log.warning("Reddit fetch blocked (HTTP %s): %s", exc.code, url)
+            return []
+        except Exception as exc:
+            log.warning("Reddit fetch error: %s", exc)
+            return []
         _last_call = loop.time()
     out = []
     for child in (j.get("data") or {}).get("children", []):

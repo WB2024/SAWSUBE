@@ -1,9 +1,13 @@
 from __future__ import annotations
 import asyncio
 import html
+import json as _json
 import logging
 import re
-import httpx
+import ssl
+import urllib.error
+import urllib.parse
+import urllib.request
 from ...config import settings
 
 log = logging.getLogger(__name__)
@@ -11,12 +15,26 @@ log = logging.getLogger(__name__)
 _last_call = 0.0
 _lock = asyncio.Lock()
 _SUB_RE = re.compile(r"^[A-Za-z0-9_]{1,50}$")
+_SSL_CTX = ssl.create_default_context()
+
+
+def _fetch_reddit_json(url: str, params: dict, user_agent: str) -> dict:
+    """Synchronous urllib fetch — avoids httpx TLS fingerprint blocking by Reddit/Cloudflare."""
+    full_url = url + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(full_url, headers={"User-Agent": user_agent})
+    with urllib.request.urlopen(req, context=_SSL_CTX, timeout=15) as resp:
+        return _json.loads(resp.read().decode())
 
 # Reddit gallery posts store image metadata in media_metadata keyed by media_id.
 # Each item has a "p" (preview) list and an "s" (source) dict with "u" (url).
 # gallery_data.items gives the ordered list with media_id references.
 
-_MIME_EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+_MIME_EXT = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",   # Reddit sometimes sends image/jpg (non-standard)
+    "image/png": "png",
+    "image/webp": "webp",
+}
 
 
 def _extract_gallery_images(post: dict) -> list[dict]:
@@ -86,18 +104,17 @@ async def fetch(sub: str, sort: str = "top", t: str = "week", limit: int = 20) -
             await asyncio.sleep(delay)
         url = f"https://www.reddit.com/r/{sub}/{sort}.json"
         params = {"limit": post_limit, "t": t}
-        headers = {"User-Agent": settings.REDDIT_USER_AGENT}
-        async with httpx.AsyncClient(timeout=15.0, headers=headers) as c:
-            r = await c.get(url, params=params)
-            try:
-                r.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                log.warning(
-                    "Reddit gallery fetch blocked (HTTP %s) — API now requires OAuth2: %s",
-                    exc.response.status_code, url,
-                )
-                return []
-            j = r.json()
+        user_agent = settings.REDDIT_USER_AGENT
+        try:
+            j = await loop.run_in_executor(
+                None, _fetch_reddit_json, url, params, user_agent
+            )
+        except urllib.error.HTTPError as exc:
+            log.warning("Reddit gallery fetch blocked (HTTP %s): %s", exc.code, url)
+            return []
+        except Exception as exc:
+            log.warning("Reddit gallery fetch error: %s", exc)
+            return []
         _last_call = loop.time()
 
     out: list[dict] = []
