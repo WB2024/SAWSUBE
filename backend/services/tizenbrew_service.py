@@ -437,22 +437,34 @@ class TizenBrewService:
 
         await _broadcast("Creating developer certificate…", 5)
 
-        # tizen CLI stores certs at ~/tizen-studio-data/keystore/author/<alias>.p12.
-        # If the file already exists the CLI refuses ("Already exist the specified
-        # filename") — skip certificate creation and reuse the existing .p12.
-        keystore_p12 = Path.home() / "tizen-studio-data" / "keystore" / "author" / f"{profile_name}.p12"
+        # The tizen CLI always names the output file "author.p12" (regardless of the
+        # -a alias flag, which sets the display name only).  The file goes to:
+        #   ~/tizen-studio-data/keystore/author/author.p12
+        # If it already exists the CLI aborts with "Already exist the specified filename".
+        # Detect that upfront and skip certificate creation — reuse the existing file.
+        keystore_dir = Path.home() / "tizen-studio-data" / "keystore" / "author"
+        keystore_p12 = keystore_dir / "author.p12"
         already_exists = keystore_p12.exists()
 
+        # Also check if the named profile is already registered in profiles.xml so we
+        # can skip `security-profiles add` (which also fails on duplicates).
+        profiles_xml = Path.home() / "tizen-studio-data" / "profile" / "profiles.xml"
+        profile_already_registered = False
+        if profiles_xml.exists():
+            try:
+                import xml.etree.ElementTree as ET
+                tree = ET.parse(str(profiles_xml))
+                profile_already_registered = any(
+                    p.get("name") == profile_name
+                    for p in tree.getroot().findall("profile")
+                )
+            except Exception:
+                pass  # if we can't parse, attempt registration anyway
+
         if already_exists:
-            await _broadcast(f"Reusing existing certificate '{profile_name}'…", 40)
+            await _broadcast(f"Reusing existing certificate at {keystore_p12}…", 40)
             res = {"returncode": 0, "stdout": "", "stderr": ""}
         else:
-            # Use only flags that exist in all Tizen Studio CLI versions.
-            # -a  alias / output file name (required in older SDKs)
-            # -p  password (always required)
-            # -o  organization
-            # -s  state
-            # -u  org unit (we reuse as city; it's optional)
             cert_cmd = [
                 tizen_path, "certificate",
                 "-a", profile_name,
@@ -467,46 +479,54 @@ class TizenBrewService:
                 cert_cmd, timeout=60.0, tv_id=tv_id, step="certificate", progress=50,
             )
 
-            # Detect failure by help-text in output (tizen prints help on bad args)
-            out_lower = res["stdout"].lower()
-            help_printed = (
-                "specify the user" in out_lower
-                or "usage:" in out_lower
-                or "--help" in out_lower
-                or ("returncode" in res and res["returncode"] != 0 and "-p (--password)" in out_lower)
-            )
-            if help_printed and res["returncode"] != 0:
-                # Try with only the truly required flag to isolate the issue
-                await _broadcast("Retrying with minimal flags…", 30)
-                cert_cmd_min = [tizen_path, "certificate", "-p", password]
-                res = await self.run_command(
-                    cert_cmd_min, timeout=60.0, tv_id=tv_id, step="certificate", progress=55,
+            # "Already exist" in stdout means the CLI created the file on a previous
+            # run but reported failure — treat as success if the file now exists.
+            combined = (res.get("stdout") or "") + (res.get("stderr") or "")
+            if "already exist" in combined.lower() and keystore_p12.exists():
+                res = {"returncode": 0, "stdout": combined, "stderr": ""}
+            elif res["returncode"] != 0:
+                # Detect bad-flag failures (tizen prints help on unknown args)
+                out_lower = combined.lower()
+                help_printed = (
+                    "specify the user" in out_lower
+                    or "usage:" in out_lower
+                    or "--help" in out_lower
+                    or "-p (--password)" in out_lower
                 )
+                if help_printed:
+                    await _broadcast("Retrying with minimal flags…", 30)
+                    cert_cmd_min = [tizen_path, "certificate", "-p", password]
+                    res = await self.run_command(
+                        cert_cmd_min, timeout=60.0, tv_id=tv_id, step="certificate", progress=55,
+                    )
 
         success = res["returncode"] == 0
 
         if success:
             await _broadcast("Registering security profile…", 80)
-            # tizen CLI places the p12 at ~/tizen-studio-data/keystore/author/<alias>.p12
-            # (standard developer cert).  SamsungCertificate/<alias>/ is only used when
-            # the Samsung Certificate Extension is installed.  Try both, plus fallbacks.
+            # The p12 is always author.p12 for standard (non-Samsung-extension) certs.
+            # Fall back to named-alias paths used by the Samsung Certificate Extension.
             home = Path.home()
             samsung_cert_dir = home / "SamsungCertificate" / profile_name
             p12_candidates = [
-                keystore_p12,  # ~/tizen-studio-data/keystore/author/<alias>.p12 (standard)
+                keystore_p12,  # ~/tizen-studio-data/keystore/author/author.p12 (standard)
+                keystore_dir / f"{profile_name}.p12",
                 samsung_cert_dir / f"{profile_name}.p12",
                 self.download_dir / f"{profile_name}.p12",
                 Path.cwd() / f"{profile_name}.p12",
             ]
             p12_path = next((p for p in p12_candidates if p.exists()), p12_candidates[0])
 
-            profile_cmd = [
-                tizen_path, "security-profiles", "add",
-                "-n", profile_name,
-                "-a", str(p12_path),
-                "-p", password,
-            ]
-            await self.run_command(profile_cmd, timeout=30.0, tv_id=tv_id, step="certificate", progress=90)
+            if profile_already_registered:
+                await _broadcast(f"Profile '{profile_name}' already registered — skipping", 90)
+            else:
+                profile_cmd = [
+                    tizen_path, "security-profiles", "add",
+                    "-n", profile_name,
+                    "-a", str(p12_path),
+                    "-p", password,
+                ]
+                await self.run_command(profile_cmd, timeout=30.0, tv_id=tv_id, step="certificate", progress=90)
             await _broadcast("✓ Certificate + profile created", 100)
             await ws_manager.broadcast({
                 "type": "tizenbrew_install_progress", "tv_id": tv_id or 0,
