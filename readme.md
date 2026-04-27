@@ -1,5 +1,9 @@
 # SAWSUBE
 
+<p align="center">
+  <img src="Logo.png" alt="SAWSUBE" width="420" />
+</p>
+
 > Your Frame. Your Art. Your Apps. Your Rules.
 
 A self-hosted control centre for Samsung Frame TVs — manage art, schedule rotations, browse free image sources, install and manage third-party apps, scan and remove Samsung bloatware, and control every Art Mode setting, all from your browser.
@@ -55,6 +59,34 @@ No Samsung account. No subscription. No cloud.
 - **Real-time updates** — WebSocket pushes live TV status, upload progress, install progress, and schedule fires to the UI without polling
 - **Dark mode** — persists in browser storage
 - **Image proxy** — SAWSUBE proxies Radarr and Navidrome cover art to the browser (and to Tizen apps) with long-lived cache headers and optional resizing, so apps never need to expose your Radarr/Navidrome credentials to external networks
+
+---
+
+## Screenshots
+
+### Dashboard
+![Dashboard](Screenshots/1.png)
+
+### Library
+![Library — dark mode](Screenshots/2.png)
+![Library — light mode](Screenshots/10.png)
+
+### TV Control
+![TV Control](Screenshots/3.png)
+
+### Discover
+![Discover](Screenshots/4.png)
+
+### Sources
+![Sources — Reddit/EarthPorn](Screenshots/5.png)
+
+### Schedules
+![Schedules](Screenshots/6.png)
+![New schedule dialog](Screenshots/7.png)
+
+### Settings
+![Settings — dark mode](Screenshots/8.png)
+![Settings — light mode](Screenshots/9.png)
 
 ---
 
