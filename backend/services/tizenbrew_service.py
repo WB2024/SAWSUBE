@@ -437,51 +437,63 @@ class TizenBrewService:
 
         await _broadcast("Creating developer certificate…", 5)
 
-        # Use only flags that exist in all Tizen Studio CLI versions.
-        # -a  alias / output file name (required in older SDKs)
-        # -p  password (always required)
-        # -o  organization
-        # -s  state
-        # -u  org unit (we reuse as city; it's optional)
-        cert_cmd = [
-            tizen_path, "certificate",
-            "-a", profile_name,
-            "-p", password,
-            "-o", org,
-            "-s", state,
-            "-u", city,
-        ]
+        # tizen CLI stores certs at ~/tizen-studio-data/keystore/author/<alias>.p12.
+        # If the file already exists the CLI refuses ("Already exist the specified
+        # filename") — skip certificate creation and reuse the existing .p12.
+        keystore_p12 = Path.home() / "tizen-studio-data" / "keystore" / "author" / f"{profile_name}.p12"
+        already_exists = keystore_p12.exists()
 
-        await _broadcast("Running tizen certificate…", 20)
-        res = await self.run_command(
-            cert_cmd, timeout=60.0, tv_id=tv_id, step="certificate", progress=50,
-        )
+        if already_exists:
+            await _broadcast(f"Reusing existing certificate '{profile_name}'…", 40)
+            res = {"returncode": 0, "stdout": "", "stderr": ""}
+        else:
+            # Use only flags that exist in all Tizen Studio CLI versions.
+            # -a  alias / output file name (required in older SDKs)
+            # -p  password (always required)
+            # -o  organization
+            # -s  state
+            # -u  org unit (we reuse as city; it's optional)
+            cert_cmd = [
+                tizen_path, "certificate",
+                "-a", profile_name,
+                "-p", password,
+                "-o", org,
+                "-s", state,
+                "-u", city,
+            ]
 
-        # Detect failure by help-text in output (tizen prints help on bad args)
-        out_lower = res["stdout"].lower()
-        help_printed = (
-            "specify the user" in out_lower
-            or "usage:" in out_lower
-            or "--help" in out_lower
-            or ("returncode" in res and res["returncode"] != 0 and "-p (--password)" in out_lower)
-        )
-        if help_printed and res["returncode"] != 0:
-            # Try with only the truly required flag to isolate the issue
-            await _broadcast("Retrying with minimal flags…", 30)
-            cert_cmd_min = [tizen_path, "certificate", "-p", password]
+            await _broadcast("Running tizen certificate…", 20)
             res = await self.run_command(
-                cert_cmd_min, timeout=60.0, tv_id=tv_id, step="certificate", progress=55,
+                cert_cmd, timeout=60.0, tv_id=tv_id, step="certificate", progress=50,
             )
+
+            # Detect failure by help-text in output (tizen prints help on bad args)
+            out_lower = res["stdout"].lower()
+            help_printed = (
+                "specify the user" in out_lower
+                or "usage:" in out_lower
+                or "--help" in out_lower
+                or ("returncode" in res and res["returncode"] != 0 and "-p (--password)" in out_lower)
+            )
+            if help_printed and res["returncode"] != 0:
+                # Try with only the truly required flag to isolate the issue
+                await _broadcast("Retrying with minimal flags…", 30)
+                cert_cmd_min = [tizen_path, "certificate", "-p", password]
+                res = await self.run_command(
+                    cert_cmd_min, timeout=60.0, tv_id=tv_id, step="certificate", progress=55,
+                )
 
         success = res["returncode"] == 0
 
         if success:
             await _broadcast("Registering security profile…", 80)
-            # The p12 is placed in ~/SamsungCertificate/<alias>/ by Tizen Studio CLI.
-            # Try that path; fall back to download_dir.
+            # tizen CLI places the p12 at ~/tizen-studio-data/keystore/author/<alias>.p12
+            # (standard developer cert).  SamsungCertificate/<alias>/ is only used when
+            # the Samsung Certificate Extension is installed.  Try both, plus fallbacks.
             home = Path.home()
             samsung_cert_dir = home / "SamsungCertificate" / profile_name
             p12_candidates = [
+                keystore_p12,  # ~/tizen-studio-data/keystore/author/<alias>.p12 (standard)
                 samsung_cert_dir / f"{profile_name}.p12",
                 self.download_dir / f"{profile_name}.p12",
                 Path.cwd() / f"{profile_name}.p12",
