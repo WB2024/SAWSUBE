@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     CASTAFIOREZEN_SRC_PATH: str = ""
     CASTAFIOREZEN_TIZEN_PROFILE: str = "SAWSUBE"
 
+    # External API keys
+    TMDB_API_KEY: str = ""
+    THETVDB_API_KEY: str = ""
+
     @property
     def resolution_tuple(self) -> tuple[int, int]:
         return (3840, 2160) if self.TV_RESOLUTION.upper() == "4K" else (1920, 1080)
