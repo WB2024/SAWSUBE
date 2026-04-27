@@ -70,8 +70,8 @@ CURATED_APPS: list[dict[str, Any]] = [
         "name": "Radarrzen",
         "description": "Movie collection manager for your Samsung TV. Connects to your existing Radarr instance — browse your library, search for movies, and monitor downloads from your couch.",
         "icon_url": "https://raw.githubusercontent.com/Radarr/Radarr/develop/Logo/256.png",
-        "source_type": "github",
-        "source": "WB2024/radarrzen",
+        "source_type": "local_build",
+        "source": "local:radarrzen",
         "category": "Media",
         "inject_config": {
             "storage_key": "radarrzen-config",
@@ -84,8 +84,8 @@ CURATED_APPS: list[dict[str, Any]] = [
         "name": "Sonarrzen",
         "description": "TV-show collection manager for your Samsung TV. Connects to your existing Sonarr instance — browse your library, search for shows, manage seasons & episodes, and monitor downloads from your couch.",
         "icon_url": "https://raw.githubusercontent.com/Sonarr/Sonarr/develop/Logo/256.png",
-        "source_type": "github",
-        "source": "WB2024/sonarrzen",
+        "source_type": "local_build",
+        "source": "local:sonarrzen",
         "category": "Media",
         "inject_config": {
             "storage_key": "sonarrzen-config",
@@ -957,7 +957,28 @@ class TizenBrewService:
                 "message": f"Fetching {app_def['name']}…",
             })
 
-            if app_def["source_type"] == "github":
+            if app_def["source_type"] == "local_build":
+                # Route to the dedicated local build+install pipeline which uses the
+                # locally-built WGT from RADARRZEN_SRC_PATH / SONARRZEN_SRC_PATH etc.
+                # This ensures the installed version matches what was built locally,
+                # NOT whatever old .wgt might be committed to a remote GitHub repo.
+                src = app_def.get("source", "")
+                if src == "local:radarrzen" or app_def.get("id") == "radarr":
+                    await self.build_and_install_radarrzen(tv_id)
+                elif src == "local:sonarrzen" or app_def.get("id") == "sonarr":
+                    await self.build_and_install_sonarrzen(tv_id)
+                elif src == "local:fieshzen" or app_def.get("id") == "fieshzen":
+                    await self.build_and_install_fieshzen(tv_id)
+                elif src == "local:castafiorezen" or app_def.get("id") == "castafiorezen":
+                    await self.build_and_install_castafiorezen(tv_id)
+                else:
+                    await ws_manager.broadcast({
+                        "type": "tizenbrew_install_progress", "tv_id": tv_id,
+                        "step": "error", "progress": 0,
+                        "message": f"No local build pipeline configured for source '{src}'.",
+                    })
+                return  # dedicated pipeline handles its own completion broadcasts
+            elif app_def["source_type"] == "github":
                 fetched = await self.fetch_github_wgt(app_def["source"], tv_id=tv_id)
             elif app_def["source_type"] in ("wgt_url", "url"):
                 fetched = await self.fetch_url_wgt(app_def["source"])
