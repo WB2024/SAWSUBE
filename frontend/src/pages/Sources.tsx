@@ -28,6 +28,12 @@ export default function Sources() {
   )
 }
 
+// Some APIs (e.g. Pexels) repeat items across pages; skip ones already shown
+function appendUnique(prev: any[], more: any[]) {
+  const seen = new Set(prev.map((it) => it.id || it.url))
+  return [...prev, ...more.filter((it) => !seen.has(it.id || it.url))]
+}
+
 function Grid({ items, onImport }: { items: any[]; onImport: (it: any) => void }) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -54,7 +60,7 @@ function Unsplash() {
     try {
       const r = await api.get<{ items: any[]; next: string | null }>(
         `/api/sources/unsplash/search?q=${encodeURIComponent(q)}${token ? `&page=${encodeURIComponent(token)}` : ''}`)
-      setItems(token ? [...items, ...r.items] : r.items)
+      setItems(token ? appendUnique(items, r.items) : r.items)
       setNext(r.next)
     }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
@@ -102,7 +108,7 @@ function Rijks() {
     try {
       const r = await api.get<{ items: any[]; next: string | null }>(
         `/api/sources/rijksmuseum/search?q=${encodeURIComponent(q)}${token ? `&page_token=${encodeURIComponent(token)}` : ''}`)
-      setItems(token ? [...items, ...r.items] : r.items)
+      setItems(token ? appendUnique(items, r.items) : r.items)
       setNext(r.next)
     }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
@@ -131,7 +137,7 @@ function Pixabay() {
     try {
       const r = await api.get<{ items: any[]; next: string | null }>(
         `/api/sources/pixabay/search?q=${encodeURIComponent(q)}${token ? `&page=${encodeURIComponent(token)}` : ''}`)
-      setItems(token ? [...items, ...r.items] : r.items)
+      setItems(token ? appendUnique(items, r.items) : r.items)
       setNext(r.next)
     }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
@@ -160,7 +166,7 @@ function Pexels() {
     try {
       const r = await api.get<{ items: any[]; next: string | null }>(
         `/api/sources/pexels/search?q=${encodeURIComponent(q)}${token ? `&page=${encodeURIComponent(token)}` : ''}`)
-      setItems(token ? [...items, ...r.items] : r.items)
+      setItems(token ? appendUnique(items, r.items) : r.items)
       setNext(r.next)
     }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
@@ -191,7 +197,7 @@ function Reddit() {
     try {
       const r = await api.get<{ items: any[]; next: string | null }>(
         `/api/sources/reddit/fetch?sub=${sub}&sort=${sort}&t=${tt}&limit=24${token ? `&after=${encodeURIComponent(token)}` : ''}`)
-      setItems(token ? [...items, ...r.items] : r.items)
+      setItems(token ? appendUnique(items, r.items) : r.items)
       setNext(r.next)
     }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
@@ -240,7 +246,7 @@ function Openverse() {
       if (size) params.set('size', size)
       if (token) params.set('page', token)
       const r = await api.get<{ items: any[]; next: string | null }>(`/api/sources/openverse/search?${params}`)
-      setItems(token ? [...items, ...r.items] : r.items)
+      setItems(token ? appendUnique(items, r.items) : r.items)
       setNext(r.next)
     } catch (e: any) { t.push({ type: 'error', text: e.message }) }
   }
@@ -297,7 +303,7 @@ function RedditGallery() {
     try {
       const r = await api.get<{ items: any[]; next: string | null }>(
         `/api/sources/reddit-gallery/fetch?sub=${sub}&sort=${sort}&t=${tt}&limit=25${token ? `&after=${encodeURIComponent(token)}` : ''}`)
-      setItems(token ? [...items, ...r.items] : r.items)
+      setItems(token ? appendUnique(items, r.items) : r.items)
       setNext(r.next)
     }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
