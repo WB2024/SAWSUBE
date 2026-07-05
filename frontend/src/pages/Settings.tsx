@@ -54,13 +54,12 @@ export default function Settings() {
 
       <Section title="Environment notes">
         <p className="text-sm text-muted">
-          API keys (Unsplash, Rijksmuseum, NASA) and other defaults are configured via the
+          API keys (Unsplash, NASA) and other defaults are configured via the
           <code className="mx-1 px-1 bg-card rounded">.env</code> file in the backend directory.
           Edit and restart the backend to apply.
         </p>
         <ul className="text-xs text-muted list-disc pl-5 space-y-0.5">
           <li>UNSPLASH_API_KEY</li>
-          <li>RIJKSMUSEUM_API_KEY</li>
           <li>TV_RESOLUTION (4K | 1080p)</li>
           <li>PORTRAIT_HANDLING (blur | crop | skip)</li>
           <li>IMAGE_FOLDER (downloaded source images)</li>

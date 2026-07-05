@@ -105,8 +105,6 @@ async def nasa_import():
 # ── Rijksmuseum ────────────────────────────────────────────────────────────
 @router.get("/rijksmuseum/search")
 async def rijks_search(q: str = Query(...), per_page: int = 20):
-    if not settings.RIJKSMUSEUM_API_KEY:
-        raise HTTPException(503, "RIJKSMUSEUM_API_KEY not configured — add it to .env")
     return await rijksmuseum.search(q, per_page)
 
 
