@@ -214,7 +214,7 @@ async def send_to_tv(image_id: int, tv_id: int, display: bool = True,
         await s.commit()
     existing = (await s.execute(
         select(TVImage).where(TVImage.tv_id == tv_id, TVImage.image_id == image_id, TVImage.is_on_tv.is_(True))
-    )).scalar_one_or_none()
+    )).scalars().first()
     if existing and existing.remote_id:
         ti = existing
     else:
@@ -236,14 +236,17 @@ async def send_to_tv(image_id: int, tv_id: int, display: bool = True,
 @router.delete("/{image_id}/tv/{tv_id}")
 async def remove_from_tv(image_id: int, tv_id: int, s: AsyncSession = Depends(get_session)):
     tv = await s.get(TV, tv_id)
-    ti = (await s.execute(
+    # re-sending after a remove can leave multiple rows per (tv, image)
+    rows = (await s.execute(
         select(TVImage).where(TVImage.tv_id == tv_id, TVImage.image_id == image_id)
-    )).scalar_one_or_none()
-    if not tv or not ti:
+    )).scalars().all()
+    if not tv or not rows:
         raise HTTPException(404)
-    if ti.remote_id:
-        await tv_manager.delete_image(tv, ti.remote_id)
-    ti.is_on_tv = False
+    for ti in rows:
+        if ti.is_on_tv and ti.remote_id:
+            if not await tv_manager.delete_image(tv, ti.remote_id):
+                raise HTTPException(503, "TV unreachable — try again when the TV is on")
+        ti.is_on_tv = False
     await s.commit()
     return {"ok": True}
 
@@ -256,15 +259,30 @@ async def list_on_tv(tv_id: int, s: AsyncSession = Depends(get_session)):
     return rows
 
 
+def _tv_thumb_cache_path(tv_id: int, remote_id: str) -> str:
+    safe = _SAFE_NAME_RE.sub("_", remote_id)
+    return os.path.join(settings.IMAGE_CACHE_DIR, "tv_thumbs", f"{tv_id}_{safe}.jpg")
+
+
 @router.get("/tv/{tv_id}/thumbnail/{remote_id}")
 async def tv_thumb(tv_id: int, remote_id: str, s: AsyncSession = Depends(get_session)):
     tv = await s.get(TV, tv_id)
     if not tv:
         raise HTTPException(404)
+    cache_path = _tv_thumb_cache_path(tv_id, remote_id)
     data = await tv_manager.get_thumbnail(tv, remote_id)
-    if not data:
-        raise HTTPException(404)
-    return Response(content=data, media_type="image/jpeg")
+    if data:
+        try:
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path, "wb") as f:
+                f.write(data)
+        except OSError as e:
+            log.warning("tv thumb cache write failed %s: %s", cache_path, e)
+        return Response(content=data, media_type="image/jpeg")
+    # TV unreachable (asleep/off) — serve the last cached copy if we have one
+    if os.path.exists(cache_path):
+        return FileResponse(cache_path, media_type="image/jpeg")
+    raise HTTPException(404)
 
 
 # ── Sync all library images → TV ────────────────────────────────────────────

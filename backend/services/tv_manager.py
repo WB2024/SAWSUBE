@@ -324,7 +324,8 @@ class TVManager:
         conn = await self.get(tv)
         try:
             art = await conn._ensure_art()
-            data = await art.get_thumbnail(content_id, as_bytes=True)
+            # NickWaterton fork: single content id + as_dict=False returns raw bytes
+            data = await art.get_thumbnail(content_id)
             return data if isinstance(data, (bytes, bytearray)) else None
         except Exception as e:
             log.warning("get_thumbnail failed TV %s content_id=%s: %s", tv.id, content_id, e, exc_info=True)
@@ -403,9 +404,14 @@ class TVManager:
         try:
             art = await conn._ensure_art()
             res = await art.get_matte_list()
-            if isinstance(res, list):
-                return res
-            return list(res) if res else []
+            out: list[str] = []
+            for m in (list(res) if res else []):
+                # entries may be plain strings or dicts like {"matte_type": "shadowbox_polar"}
+                if isinstance(m, dict):
+                    m = m.get("matte_type") or ""
+                if m:
+                    out.append(str(m))
+            return out
         except Exception as e:
             log.warning("list_mattes failed TV %s: %s", tv.id, e, exc_info=True)
             conn.art = None

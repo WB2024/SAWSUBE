@@ -33,8 +33,9 @@ async def test_delete_folder_404(app_client):
 
 
 async def test_unsplash_search_mocked(app_client):
-    fake = [{"id": "x", "url": "https://example.com/x.jpg"}]
-    with patch("backend.routers.sources.unsplash.search",
+    fake = {"items": [{"id": "x", "url": "https://example.com/x.jpg"}], "next": None}
+    with patch("backend.routers.sources.settings.UNSPLASH_API_KEY", "testkey"), \
+         patch("backend.routers.sources.unsplash.search",
                new=AsyncMock(return_value=fake)):
         r = await app_client.get("/api/sources/unsplash/search?q=mountain")
         assert r.json() == fake
@@ -54,10 +55,10 @@ async def test_nasa_apod_no_image(app_client):
 
 async def test_reddit_fetch_mocked(app_client):
     with patch("backend.routers.sources.reddit.fetch",
-               new=AsyncMock(return_value=[{"id": "abc", "url": "https://i.redd.it/x.jpg"}])):
+               new=AsyncMock(return_value={"items": [{"id": "abc", "url": "https://i.redd.it/x.jpg"}], "next": None})):
         r = await app_client.get("/api/sources/reddit/fetch?sub=earthporn&sort=top&t=week")
         assert r.status_code == 200
-        assert r.json()[0]["id"] == "abc"
+        assert r.json()["items"][0]["id"] == "abc"
 
 
 async def test_reddit_import_requires_url(app_client):

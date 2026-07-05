@@ -28,6 +28,12 @@ export default function Sources() {
   )
 }
 
+// Some APIs (e.g. Pexels) repeat items across pages; skip ones already shown
+function appendUnique(prev: any[], more: any[]) {
+  const seen = new Set(prev.map((it) => it.id || it.url))
+  return [...prev, ...more.filter((it) => !seen.has(it.id || it.url))]
+}
+
 function Grid({ items, onImport }: { items: any[]; onImport: (it: any) => void }) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -48,21 +54,28 @@ function Grid({ items, onImport }: { items: any[]; onImport: (it: any) => void }
 function Unsplash() {
   const [q, setQ] = useState('landscape')
   const [items, setItems] = useState<any[]>([])
+  const [next, setNext] = useState<string | null>(null)
   const t = useToast()
-  const search = async () => {
-    try { setItems(await api.get(`/api/sources/unsplash/search?q=${encodeURIComponent(q)}`)) }
+  const search = async (token?: string | null) => {
+    try {
+      const r = await api.get<{ items: any[]; next: string | null }>(
+        `/api/sources/unsplash/search?q=${encodeURIComponent(q)}${token ? `&page=${encodeURIComponent(token)}` : ''}`)
+      setItems(token ? appendUnique(items, r.items) : r.items)
+      setNext(r.next)
+    }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
   }
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} />
-        <button className="btn-primary" onClick={search}>Search</button>
+        <button className="btn-primary" onClick={() => search()}>Search</button>
       </div>
       <Grid items={items} onImport={async (it) => {
         try { await api.post('/api/sources/unsplash/import', { id: it.id }); t.push({ type: 'success', text: 'Imported' }) }
         catch (e: any) { t.push({ type: 'error', text: e.message }) }
       }} />
+      {next && <button className="btn-ghost w-full" onClick={() => search(next)}>Load more</button>}
     </div>
   )
 }
@@ -89,21 +102,28 @@ function Nasa() {
 function Rijks() {
   const [q, setQ] = useState('vermeer')
   const [items, setItems] = useState<any[]>([])
+  const [next, setNext] = useState<string | null>(null)
   const t = useToast()
-  const search = async () => {
-    try { setItems(await api.get(`/api/sources/rijksmuseum/search?q=${encodeURIComponent(q)}`)) }
+  const search = async (token?: string | null) => {
+    try {
+      const r = await api.get<{ items: any[]; next: string | null }>(
+        `/api/sources/rijksmuseum/search?q=${encodeURIComponent(q)}${token ? `&page_token=${encodeURIComponent(token)}` : ''}`)
+      setItems(token ? appendUnique(items, r.items) : r.items)
+      setNext(r.next)
+    }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
   }
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} />
-        <button className="btn-primary" onClick={search}>Search</button>
+        <button className="btn-primary" onClick={() => search()}>Search</button>
       </div>
       <Grid items={items} onImport={async (it) => {
         try { await api.post('/api/sources/rijksmuseum/import', { id: it.id }); t.push({ type: 'success', text: 'Imported' }) }
         catch (e: any) { t.push({ type: 'error', text: e.message }) }
       }} />
+      {next && <button className="btn-ghost w-full" onClick={() => search(next)}>Load more</button>}
     </div>
   )
 }
@@ -111,21 +131,28 @@ function Rijks() {
 function Pixabay() {
   const [q, setQ] = useState('landscape')
   const [items, setItems] = useState<any[]>([])
+  const [next, setNext] = useState<string | null>(null)
   const t = useToast()
-  const search = async () => {
-    try { setItems(await api.get(`/api/sources/pixabay/search?q=${encodeURIComponent(q)}`)) }
+  const search = async (token?: string | null) => {
+    try {
+      const r = await api.get<{ items: any[]; next: string | null }>(
+        `/api/sources/pixabay/search?q=${encodeURIComponent(q)}${token ? `&page=${encodeURIComponent(token)}` : ''}`)
+      setItems(token ? appendUnique(items, r.items) : r.items)
+      setNext(r.next)
+    }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
   }
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder="Search Pixabay photos…" />
-        <button className="btn-primary" onClick={search}>Search</button>
+        <button className="btn-primary" onClick={() => search()}>Search</button>
       </div>
       <Grid items={items} onImport={async (it) => {
         try { await api.post('/api/sources/pixabay/import', { id: it.id }); t.push({ type: 'success', text: 'Imported' }) }
         catch (e: any) { t.push({ type: 'error', text: e.message }) }
       }} />
+      {next && <button className="btn-ghost w-full" onClick={() => search(next)}>Load more</button>}
     </div>
   )
 }
@@ -133,21 +160,28 @@ function Pixabay() {
 function Pexels() {
   const [q, setQ] = useState('landscape')
   const [items, setItems] = useState<any[]>([])
+  const [next, setNext] = useState<string | null>(null)
   const t = useToast()
-  const search = async () => {
-    try { setItems(await api.get(`/api/sources/pexels/search?q=${encodeURIComponent(q)}`)) }
+  const search = async (token?: string | null) => {
+    try {
+      const r = await api.get<{ items: any[]; next: string | null }>(
+        `/api/sources/pexels/search?q=${encodeURIComponent(q)}${token ? `&page=${encodeURIComponent(token)}` : ''}`)
+      setItems(token ? appendUnique(items, r.items) : r.items)
+      setNext(r.next)
+    }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
   }
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder="Search Pexels photos…" />
-        <button className="btn-primary" onClick={search}>Search</button>
+        <button className="btn-primary" onClick={() => search()}>Search</button>
       </div>
       <Grid items={items} onImport={async (it) => {
         try { await api.post('/api/sources/pexels/import', { id: it.id }); t.push({ type: 'success', text: 'Imported' }) }
         catch (e: any) { t.push({ type: 'error', text: e.message }) }
       }} />
+      {next && <button className="btn-ghost w-full" onClick={() => search(next)}>Load more</button>}
     </div>
   )
 }
@@ -157,9 +191,15 @@ function Reddit() {
   const [sort, setSort] = useState('top')
   const [tt, setTt] = useState('week')
   const [items, setItems] = useState<any[]>([])
+  const [next, setNext] = useState<string | null>(null)
   const t = useToast()
-  const fetchIt = async () => {
-    try { setItems(await api.get(`/api/sources/reddit/fetch?sub=${sub}&sort=${sort}&t=${tt}&limit=24`)) }
+  const fetchIt = async (token?: string | null) => {
+    try {
+      const r = await api.get<{ items: any[]; next: string | null }>(
+        `/api/sources/reddit/fetch?sub=${sub}&sort=${sort}&t=${tt}&limit=24${token ? `&after=${encodeURIComponent(token)}` : ''}`)
+      setItems(token ? appendUnique(items, r.items) : r.items)
+      setNext(r.next)
+    }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
   }
   return (
@@ -172,7 +212,7 @@ function Reddit() {
         <select className="input w-28" value={tt} onChange={(e) => setTt(e.target.value)}>
           <option>day</option><option>week</option><option>month</option><option>year</option><option>all</option>
         </select>
-        <button className="btn-primary" onClick={fetchIt}>Fetch</button>
+        <button className="btn-primary" onClick={() => fetchIt()}>Fetch</button>
       </div>
       <Grid items={items} onImport={async (it) => {
         try {
@@ -183,6 +223,7 @@ function Reddit() {
           t.push({ type: 'success', text: 'Imported' })
         } catch (e: any) { t.push({ type: 'error', text: e.message }) }
       }} />
+      {next && <button className="btn-ghost w-full" onClick={() => fetchIt(next)}>Load more</button>}
     </div>
   )
 }
@@ -194,15 +235,19 @@ function Openverse() {
   const [aspectRatio, setAspectRatio] = useState('wide')
   const [size, setSize] = useState('large')
   const [items, setItems] = useState<any[]>([])
+  const [next, setNext] = useState<string | null>(null)
   const t = useToast()
-  const search = async () => {
+  const search = async (token?: string | null) => {
     try {
       const params = new URLSearchParams({ q, page_size: '24' })
       if (category) params.set('category', category)
       if (licenseType) params.set('license_type', licenseType)
       if (aspectRatio) params.set('aspect_ratio', aspectRatio)
       if (size) params.set('size', size)
-      setItems(await api.get(`/api/sources/openverse/search?${params}`))
+      if (token) params.set('page', token)
+      const r = await api.get<{ items: any[]; next: string | null }>(`/api/sources/openverse/search?${params}`)
+      setItems(token ? appendUnique(items, r.items) : r.items)
+      setNext(r.next)
     } catch (e: any) { t.push({ type: 'error', text: e.message }) }
   }
   return (
@@ -234,7 +279,7 @@ function Openverse() {
           <option value="commercial">Commercial use OK</option>
           <option value="modification">Modifications OK</option>
         </select>
-        <button className="btn-primary" onClick={search}>Search</button>
+        <button className="btn-primary" onClick={() => search()}>Search</button>
       </div>
       <Grid items={items} onImport={async (it) => {
         try {
@@ -242,6 +287,7 @@ function Openverse() {
           t.push({ type: 'success', text: 'Imported' })
         } catch (e: any) { t.push({ type: 'error', text: e.message }) }
       }} />
+      {next && <button className="btn-ghost w-full" onClick={() => search(next)}>Load more</button>}
     </div>
   )
 }
@@ -251,9 +297,15 @@ function RedditGallery() {
   const [sort, setSort] = useState('top')
   const [tt, setTt] = useState('week')
   const [items, setItems] = useState<any[]>([])
+  const [next, setNext] = useState<string | null>(null)
   const t = useToast()
-  const fetchIt = async () => {
-    try { setItems(await api.get(`/api/sources/reddit-gallery/fetch?sub=${sub}&sort=${sort}&t=${tt}&limit=25`)) }
+  const fetchIt = async (token?: string | null) => {
+    try {
+      const r = await api.get<{ items: any[]; next: string | null }>(
+        `/api/sources/reddit-gallery/fetch?sub=${sub}&sort=${sort}&t=${tt}&limit=25${token ? `&after=${encodeURIComponent(token)}` : ''}`)
+      setItems(token ? appendUnique(items, r.items) : r.items)
+      setNext(r.next)
+    }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
   }
   return (
@@ -267,7 +319,7 @@ function RedditGallery() {
         <select className="input w-28" value={tt} onChange={(e) => setTt(e.target.value)}>
           <option>day</option><option>week</option><option>month</option><option>year</option><option>all</option>
         </select>
-        <button className="btn-primary" onClick={fetchIt}>Fetch</button>
+        <button className="btn-primary" onClick={() => fetchIt()}>Fetch</button>
       </div>
       <Grid items={items} onImport={async (it) => {
         try {
@@ -278,6 +330,7 @@ function RedditGallery() {
           t.push({ type: 'success', text: 'Imported' })
         } catch (e: any) { t.push({ type: 'error', text: e.message }) }
       }} />
+      {next && <button className="btn-ghost w-full" onClick={() => fetchIt(next)}>Load more</button>}
     </div>
   )
 }

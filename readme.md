@@ -176,10 +176,9 @@ cp .env.example .env
 | `PEXELS_API_KEY` | [pexels.com/api](https://www.pexels.com/api/) — free |
 | `PIXABAY_API_KEY` | [pixabay.com/api/docs](https://pixabay.com/api/docs/) — free |
 | `OPENVERSE_CLIENT_ID` / `OPENVERSE_CLIENT_SECRET` | [api.openverse.org](https://api.openverse.org/) — free |
-| `RIJKSMUSEUM_API_KEY` | [data.rijksmuseum.nl](https://data.rijksmuseum.nl/object-metadata/api/) — free |
 | `NASA_API_KEY` | [api.nasa.gov](https://api.nasa.gov) — free (optional; public key works with rate limits) |
 
-Reddit requires no API key.
+Reddit and the Rijksmuseum require no API key (the Rijksmuseum's [new Search API](https://data.rijksmuseum.nl/docs/search) is public).
 
 #### Radarrzen (movie manager on TV)
 

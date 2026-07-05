@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     TV_RESOLUTION: str = "4K"  # 4K | 1080p
     PORTRAIT_HANDLING: str = "blur"  # blur | crop | skip
     UNSPLASH_API_KEY: str = ""
-    RIJKSMUSEUM_API_KEY: str = ""
     NASA_API_KEY: str = ""
     PEXELS_API_KEY: str = ""
     PIXABAY_API_KEY: str = ""

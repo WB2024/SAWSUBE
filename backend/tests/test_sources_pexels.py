@@ -64,7 +64,7 @@ async def test_search_empty_when_no_api_key(tmp_workdir, monkeypatch):
     importlib.reload(cfg_mod)
     importlib.reload(mod)
     result = await mod.search("landscape")
-    assert result == []
+    assert result == {"items": [], "next": None}
 
 
 async def test_get_none_when_no_api_key(tmp_workdir, monkeypatch):
@@ -86,9 +86,11 @@ async def test_search_returns_normalised_list(tmp_workdir, monkeypatch):
 
     payload = {"photos": [_FAKE_PHOTO], "total_results": 1, "page": 1, "per_page": 1}
     with patch("backend.services.sources.pexels.httpx.AsyncClient", _fake_client(payload)):
-        results = await mod.search("landscape", per_page=1)
+        out = await mod.search("landscape", per_page=1)
 
+    results = out["items"]
     assert len(results) == 1
+    assert out["next"] is None  # no next_page in payload
     r = results[0]
     assert r["id"] == "123456"
     assert r["url"] == _FAKE_PHOTO["src"]["original"]
@@ -109,7 +111,7 @@ async def test_search_empty_photos_key(tmp_workdir, monkeypatch):
     payload = {"photos": [], "total_results": 0, "page": 1, "per_page": 1}
     with patch("backend.services.sources.pexels.httpx.AsyncClient", _fake_client(payload)):
         results = await mod.search("nothing")
-    assert results == []
+    assert results == {"items": [], "next": None}
 
 
 async def test_get_returns_normalised_dict(tmp_workdir, monkeypatch):
@@ -185,9 +187,9 @@ async def test_router_pexels_search_mocked(tmp_workdir, monkeypatch):
     import importlib, backend.config as cfg_mod
     importlib.reload(cfg_mod)
 
-    mock_results = [{"id": "1", "url": "http://example.com/img.jpg", "thumb": "http://example.com/t.jpg",
+    mock_results = {"items": [{"id": "1", "url": "http://example.com/img.jpg", "thumb": "http://example.com/t.jpg",
                      "title": "Test", "credit": "Tester", "credit_url": None, "html": "http://pexels.com/photo/1",
-                     "width": 1920, "height": 1080}]
+                     "width": 1920, "height": 1080}], "next": None}
     with patch("backend.services.sources.pexels.search", return_value=mock_results):
         import backend.main as main_mod
         importlib.reload(main_mod)
@@ -196,7 +198,7 @@ async def test_router_pexels_search_mocked(tmp_workdir, monkeypatch):
             r = await c.get("/api/sources/pexels/search?q=landscape")
     assert r.status_code == 200
     data = r.json()
-    assert isinstance(data, list)
+    assert isinstance(data["items"], list)
 
 
 # ── live integration test (only runs when real key in env) ─────────────────
@@ -212,7 +214,7 @@ async def test_live_pexels_search(tmp_workdir, monkeypatch):
     import backend.services.sources.pexels as mod
     importlib.reload(mod)
 
-    results = await mod.search("mountain landscape", per_page=5)
+    results = (await mod.search("mountain landscape", per_page=5))["items"]
     assert len(results) > 0
     r = results[0]
     for key in ("id", "url", "thumb", "title", "credit"):

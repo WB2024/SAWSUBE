@@ -67,10 +67,13 @@ async def search(
     license_type: str = "",
     aspect_ratio: str = "wide",
     size: str = "large",
-) -> list[dict]:
+    page: int = 1,
+) -> dict:
+    page = max(1, int(page))
     params: dict = {
         "q": q,
         "page_size": min(max(int(page_size), 1), 100),
+        "page": page,
         "mature": "false",
         "filter_dead": "true",
     }
@@ -108,7 +111,8 @@ async def search(
             "width": item.get("width"),
             "height": item.get("height"),
         })
-    return out
+    has_more = out and page < int(j.get("page_count") or 0)
+    return {"items": out, "next": str(page + 1) if has_more else None}
 
 
 async def get(image_id: str) -> dict | None:

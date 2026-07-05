@@ -66,7 +66,7 @@ def _reload(monkeypatch, key: str = "testkey"):
 async def test_search_empty_when_no_key(tmp_workdir, monkeypatch):
     mod = _reload(monkeypatch, key="")
     result = await mod.search("landscape")
-    assert result == []
+    assert result == {"items": [], "next": None}
 
 
 async def test_get_none_when_no_key(tmp_workdir, monkeypatch):
@@ -79,9 +79,11 @@ async def test_search_returns_normalised_list(tmp_workdir, monkeypatch):
     mod = _reload(monkeypatch)
     payload = {"total": 1, "totalHits": 1, "hits": [_FAKE_HIT]}
     with patch("backend.services.sources.pixabay.httpx.AsyncClient", _fake_client(payload)):
-        results = await mod.search("flower", per_page=1)
+        out = await mod.search("flower", per_page=1)
 
+    results = out["items"]
     assert len(results) == 1
+    assert out["next"] is None  # totalHits=1 already covered by page 1
     r = results[0]
     assert r["id"] == "195893"
     assert r["url"] == _FAKE_HIT["largeImageURL"]
@@ -97,7 +99,7 @@ async def test_search_empty_hits(tmp_workdir, monkeypatch):
     payload = {"total": 0, "totalHits": 0, "hits": []}
     with patch("backend.services.sources.pixabay.httpx.AsyncClient", _fake_client(payload)):
         results = await mod.search("nothing here xyz")
-    assert results == []
+    assert results == {"items": [], "next": None}
 
 
 async def test_get_returns_normalised_dict(tmp_workdir, monkeypatch):
@@ -165,7 +167,7 @@ async def test_live_pixabay_search(tmp_workdir, monkeypatch):
     import backend.services.sources.pixabay as mod
     importlib.reload(mod)
 
-    results = await mod.search("mountain landscape", per_page=5)
+    results = (await mod.search("mountain landscape", per_page=5))["items"]
     assert len(results) > 0
     r = results[0]
     for key in ("id", "url", "thumb", "title", "credit"):
