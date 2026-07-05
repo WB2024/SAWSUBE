@@ -163,7 +163,9 @@ def requires_certificate(year: int | None) -> bool:
 
 class TizenBrewService:
     def __init__(self) -> None:
-        self.download_dir = Path(getattr(settings, "TIZENBREW_DOWNLOAD_DIR", "./data/tizenbrew"))
+        # Absolute path: relative paths handed to the tizen CLI get resolved
+        # against the CLI's own bin directory, not our working directory
+        self.download_dir = Path(getattr(settings, "TIZENBREW_DOWNLOAD_DIR", "./data/tizenbrew")).resolve()
         self.download_dir.mkdir(parents=True, exist_ok=True)
         # Track running jobs by tv_id to prevent overlap
         self._jobs: dict[int, asyncio.Task] = {}
@@ -705,6 +707,9 @@ class TizenBrewService:
         self, tizen_path: str, wgt_path: str, profile_name: str, output_dir: str,
         tv_id: int | None = None,
     ) -> dict[str, Any]:
+        # The tizen CLI resolves relative paths against its own bin dir — force absolute
+        output_dir = str(Path(output_dir).resolve())
+        wgt_path = str(Path(wgt_path).resolve())
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         if tv_id is not None:
             await ws_manager.broadcast({
