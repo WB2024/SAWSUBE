@@ -33,23 +33,29 @@ def _normalise(p: dict) -> dict:
     }
 
 
-async def search(query: str, per_page: int = 20) -> list[dict]:
+async def search(query: str, per_page: int = 20, page: int = 1) -> dict:
     if not settings.PIXABAY_API_KEY:
-        return []
+        return {"items": [], "next": None}
+    page = max(1, int(page))
+    per_page = max(3, min(int(per_page), 200))
     params = {
         "key": settings.PIXABAY_API_KEY,
         "q": query,
         "image_type": "photo",
         "orientation": "horizontal",
         "safesearch": "true",
-        "per_page": max(3, min(int(per_page), 200)),
+        "per_page": per_page,
+        "page": page,
         "order": "popular",
     }
     async with httpx.AsyncClient(timeout=15.0) as c:
         r = await c.get(_BASE, params=params)
         r.raise_for_status()
         j = r.json()
-    return [_normalise(p) for p in j.get("hits", [])]
+    items = [_normalise(p) for p in j.get("hits", [])]
+    # totalHits is how many results the API will actually serve (max 500)
+    has_more = items and page * per_page < int(j.get("totalHits") or 0)
+    return {"items": items, "next": str(page + 1) if has_more else None}
 
 
 async def get(photo_id: str) -> dict | None:

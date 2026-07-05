@@ -26,10 +26,10 @@ def _fetch_reddit_json(url: str, params: dict, user_agent: str) -> dict:
         return _json.loads(resp.read().decode())
 
 
-async def fetch(sub: str, sort: str = "top", t: str = "week", limit: int = 20) -> list[dict]:
+async def fetch(sub: str, sort: str = "top", t: str = "week", limit: int = 20, after: str = "") -> dict:
     global _last_call
     if not _SUB_RE.match(sub or ""):
-        return []
+        return {"items": [], "next": None}
     if sort not in {"top", "hot", "new", "rising", "controversial"}:
         sort = "top"
     if t not in {"hour", "day", "week", "month", "year", "all"}:
@@ -42,6 +42,8 @@ async def fetch(sub: str, sort: str = "top", t: str = "week", limit: int = 20) -
             await asyncio.sleep(delay)
         url = f"https://www.reddit.com/r/{sub}/{sort}.json"
         params = {"limit": limit, "t": t}
+        if after:
+            params["after"] = after
         user_agent = settings.REDDIT_USER_AGENT
         try:
             j = await loop.run_in_executor(
@@ -49,10 +51,10 @@ async def fetch(sub: str, sort: str = "top", t: str = "week", limit: int = 20) -
             )
         except urllib.error.HTTPError as exc:
             log.warning("Reddit fetch blocked (HTTP %s): %s", exc.code, url)
-            return []
+            return {"items": [], "next": None}
         except Exception as exc:
             log.warning("Reddit fetch error: %s", exc)
-            return []
+            return {"items": [], "next": None}
         _last_call = loop.time()
     out = []
     for child in (j.get("data") or {}).get("children", []):
@@ -71,4 +73,4 @@ async def fetch(sub: str, sort: str = "top", t: str = "week", limit: int = 20) -
             "html": "https://www.reddit.com" + d.get("permalink", ""),
             "subreddit": d.get("subreddit"),
         })
-    return out
+    return {"items": out, "next": (j.get("data") or {}).get("after")}

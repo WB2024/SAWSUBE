@@ -57,10 +57,10 @@ async def scan(fid: int, s: AsyncSession = Depends(get_session)):
 
 # ── Unsplash ───────────────────────────────────────────────────────────────
 @router.get("/unsplash/search")
-async def unsplash_search(q: str = Query(...), per_page: int = 20):
+async def unsplash_search(q: str = Query(...), per_page: int = 20, page: int = 1):
     if not settings.UNSPLASH_API_KEY:
         raise HTTPException(503, "UNSPLASH_API_KEY not configured — add it to .env")
-    return await unsplash.search(q, per_page)
+    return await unsplash.search(q, per_page, page)
 
 
 @router.post("/unsplash/import", response_model=ImageOut)
@@ -126,10 +126,10 @@ async def rijks_import(payload: ImportPayload):
 
 # ── Pexels ────────────────────────────────────────────────────────────────
 @router.get("/pexels/search")
-async def pexels_search(q: str = Query(...), per_page: int = 20):
+async def pexels_search(q: str = Query(...), per_page: int = 20, page: int = 1):
     if not settings.PEXELS_API_KEY:
         raise HTTPException(503, "PEXELS_API_KEY not configured — add it to .env")
-    return await pexels.search(q, per_page)
+    return await pexels.search(q, per_page, page)
 
 
 @router.post("/pexels/import", response_model=ImageOut)
@@ -151,10 +151,10 @@ async def pexels_import(payload: ImportPayload):
 
 # ── Pixabay ──────────────────────────────────────────────────────────────
 @router.get("/pixabay/search")
-async def pixabay_search(q: str = Query(...), per_page: int = 20):
+async def pixabay_search(q: str = Query(...), per_page: int = 20, page: int = 1):
     if not settings.PIXABAY_API_KEY:
         raise HTTPException(503, "PIXABAY_API_KEY not configured — add it to .env")
-    return await pixabay.search(q, per_page)
+    return await pixabay.search(q, per_page, page)
 
 
 @router.post("/pixabay/import", response_model=ImageOut)
@@ -176,8 +176,8 @@ async def pixabay_import(payload: ImportPayload):
 
 # ── Reddit ─────────────────────────────────────────────────────────────────
 @router.get("/reddit/fetch")
-async def reddit_fetch(sub: str = Query(...), sort: str = "top", t: str = "week", limit: int = 20):
-    return await reddit.fetch(sub, sort, t, limit)
+async def reddit_fetch(sub: str = Query(...), sort: str = "top", t: str = "week", limit: int = 20, after: str = ""):
+    return await reddit.fetch(sub, sort, t, limit, after)
 
 
 @router.post("/reddit/import", response_model=ImageOut)
@@ -195,8 +195,8 @@ async def reddit_import(payload: ImportPayload):
 
 # ── Reddit Galleries ────────────────────────────────────────────────────────
 @router.get("/reddit-gallery/fetch")
-async def reddit_gallery_fetch(sub: str = Query(...), sort: str = "top", t: str = "week", limit: int = 25):
-    return await reddit_gallery.fetch(sub, sort, t, limit)
+async def reddit_gallery_fetch(sub: str = Query(...), sort: str = "top", t: str = "week", limit: int = 25, after: str = ""):
+    return await reddit_gallery.fetch(sub, sort, t, limit, after)
 
 
 @router.post("/reddit-gallery/import", response_model=ImageOut)
@@ -222,8 +222,9 @@ async def openverse_search(
     license_type: str = "",
     aspect_ratio: str = "wide",
     size: str = "large",
+    page: int = 1,
 ):
-    return await openverse.search(q, page_size, category, license_type, aspect_ratio, size)
+    return await openverse.search(q, page_size, category, license_type, aspect_ratio, size, page)
 
 
 @router.post("/openverse/import", response_model=ImageOut)

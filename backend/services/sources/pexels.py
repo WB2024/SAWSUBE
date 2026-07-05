@@ -25,15 +25,17 @@ def _normalise(p: dict) -> dict:
     }
 
 
-async def search(query: str, per_page: int = 20) -> list[dict]:
+async def search(query: str, per_page: int = 20, page: int = 1) -> dict:
     if not settings.PEXELS_API_KEY:
-        return []
-    params = {"query": query, "per_page": min(int(per_page), 80), "orientation": "landscape"}
+        return {"items": [], "next": None}
+    page = max(1, int(page))
+    params = {"query": query, "per_page": min(int(per_page), 80), "page": page, "orientation": "landscape"}
     async with httpx.AsyncClient(timeout=15.0) as c:
         r = await c.get(f"{_BASE}/search", params=params, headers=_headers())
         r.raise_for_status()
         j = r.json()
-    return [_normalise(p) for p in j.get("photos", [])]
+    items = [_normalise(p) for p in j.get("photos", [])]
+    return {"items": items, "next": str(page + 1) if items and j.get("next_page") else None}
 
 
 async def get(photo_id: str) -> dict | None:
