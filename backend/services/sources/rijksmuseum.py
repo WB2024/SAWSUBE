@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+from urllib.parse import parse_qs, urlparse
 import httpx
 
 # Rijksmuseum's new Search API (https://data.rijksmuseum.nl/docs/search) is
@@ -107,23 +108,56 @@ async def _fetch_item(client: httpx.AsyncClient, sem: asyncio.Semaphore, oid: st
             return None
 
 
-async def search(query: str, per_page: int = 20) -> list[dict]:
+async def _search_page(c: httpx.AsyncClient, field: str, query: str, api_token: str) -> tuple[list[str], str]:
+    params = {field: query, "imageAvailable": "true"}
+    if api_token:
+        params["pageToken"] = api_token
+    r = await c.get(SEARCH_URL, params=params)
+    r.raise_for_status()
+    j = r.json()
+    ids = [i["id"].rsplit("/", 1)[-1] for i in _as_list(j.get("orderedItems")) if i.get("id")]
+    next_url = (j.get("next") or {}).get("id", "")
+    next_token = (parse_qs(urlparse(next_url).query).get("pageToken") or [""])[0]
+    return ids, next_token
+
+
+async def search(query: str, per_page: int = 20, page_token: str | None = None) -> dict:
+    """Returns {"items": [...], "next": token-or-None}.
+
+    Continuation tokens are "<field>|<API pageToken>|<offset>": API pages
+    hold up to 100 ids while only per_page are resolved per call, so the
+    offset tracks the position within the current API page.
+    """
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as c:
-        # The new API has no free-text parameter; try the most useful fields
-        # in turn until one matches.
+        field, api_token, offset = "", "", 0
         ids: list[str] = []
-        for field in ("creator", "title", "description"):
-            r = await c.get(SEARCH_URL, params={field: query, "imageAvailable": "true"})
-            r.raise_for_status()
-            items = _as_list(r.json().get("orderedItems"))
-            ids = [i["id"].rsplit("/", 1)[-1] for i in items if i.get("id")][:per_page]
-            if ids:
-                break
-        if not ids:
-            return []
+        next_api_token = ""
+        if page_token:
+            try:
+                field, api_token, off = page_token.split("|", 2)
+                offset = int(off)
+            except ValueError:
+                return {"items": [], "next": None}
+            ids, next_api_token = await _search_page(c, field, query, api_token)
+        else:
+            # The new API has no free-text parameter; try the most useful
+            # fields in turn until one matches.
+            for field in ("creator", "title", "description"):
+                ids, next_api_token = await _search_page(c, field, query, "")
+                if ids:
+                    break
+        page_ids = ids[offset:offset + per_page]
+        if not page_ids:
+            return {"items": [], "next": None}
+        if offset + per_page < len(ids):
+            next_token = f"{field}|{api_token}|{offset + per_page}"
+        elif next_api_token:
+            next_token = f"{field}|{next_api_token}|0"
+        else:
+            next_token = None
         sem = asyncio.Semaphore(_CONCURRENCY)
-        results = await asyncio.gather(*(_fetch_item(c, sem, oid) for oid in ids))
-    return [r for r in results if r]
+        results = await asyncio.gather(*(_fetch_item(c, sem, oid) for oid in page_ids))
+    return {"items": [r for r in results if r], "next": next_token}
 
 
 async def get(object_id: str) -> dict | None:

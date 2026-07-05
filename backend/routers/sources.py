@@ -104,8 +104,8 @@ async def nasa_import():
 
 # ── Rijksmuseum ────────────────────────────────────────────────────────────
 @router.get("/rijksmuseum/search")
-async def rijks_search(q: str = Query(...), per_page: int = 20):
-    return await rijksmuseum.search(q, per_page)
+async def rijks_search(q: str = Query(...), per_page: int = 20, page_token: str = ""):
+    return await rijksmuseum.search(q, per_page, page_token or None)
 
 
 @router.post("/rijksmuseum/import", response_model=ImageOut)

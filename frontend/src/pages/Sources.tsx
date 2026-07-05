@@ -89,21 +89,28 @@ function Nasa() {
 function Rijks() {
   const [q, setQ] = useState('vermeer')
   const [items, setItems] = useState<any[]>([])
+  const [next, setNext] = useState<string | null>(null)
   const t = useToast()
-  const search = async () => {
-    try { setItems(await api.get(`/api/sources/rijksmuseum/search?q=${encodeURIComponent(q)}`)) }
+  const search = async (token?: string | null) => {
+    try {
+      const r = await api.get<{ items: any[]; next: string | null }>(
+        `/api/sources/rijksmuseum/search?q=${encodeURIComponent(q)}${token ? `&page_token=${encodeURIComponent(token)}` : ''}`)
+      setItems(token ? [...items, ...r.items] : r.items)
+      setNext(r.next)
+    }
     catch (e: any) { t.push({ type: 'error', text: e.message }) }
   }
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} />
-        <button className="btn-primary" onClick={search}>Search</button>
+        <button className="btn-primary" onClick={() => search()}>Search</button>
       </div>
       <Grid items={items} onImport={async (it) => {
         try { await api.post('/api/sources/rijksmuseum/import', { id: it.id }); t.push({ type: 'success', text: 'Imported' }) }
         catch (e: any) { t.push({ type: 'error', text: e.message }) }
       }} />
+      {next && <button className="btn-ghost w-full" onClick={() => search(next)}>Load more</button>}
     </div>
   )
 }
