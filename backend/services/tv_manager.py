@@ -324,7 +324,8 @@ class TVManager:
         conn = await self.get(tv)
         try:
             art = await conn._ensure_art()
-            data = await art.get_thumbnail(content_id, as_bytes=True)
+            # NickWaterton fork: single content id + as_dict=False returns raw bytes
+            data = await art.get_thumbnail(content_id)
             return data if isinstance(data, (bytes, bytearray)) else None
         except Exception as e:
             log.warning("get_thumbnail failed TV %s content_id=%s: %s", tv.id, content_id, e, exc_info=True)
