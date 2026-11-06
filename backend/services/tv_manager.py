@@ -46,6 +46,10 @@ class TVConnection:
         self.name = tv.name
         self.token_file = token_path_for(tv)
         self.lock = asyncio.Lock()
+        # serialises thumbnail fetches: a grid of thumbnails would otherwise fire many
+        # concurrent art requests, and a few timeouts make samsungtvws pause the whole
+        # art service (status, show, upload, …) for 30–240 s
+        self.thumb_sem = asyncio.Semaphore(1)
         self.art: Optional[Any] = None
         self.remote: Optional[Any] = None
         self.last_status: dict[str, Any] = {"online": False, "artmode": None, "current": None}
@@ -309,27 +313,52 @@ class TVManager:
             conn.art = None
             return False
 
-    async def list_images(self, tv: TV) -> list[dict]:
+    async def list_images(self, tv: TV, category: str | None = None) -> list[dict] | None:
+        """All content stored on the TV (optionally filtered by category, e.g. 'MY-C0002').
+
+        Returns None when the TV could not be queried, so callers can tell
+        "unreachable" apart from "empty".
+        """
         conn = await self.get(tv)
         try:
             art = await conn._ensure_art()
-            res = await art.available()
+            res = await art.available(category=category)
             return res if isinstance(res, list) else []
         except Exception as e:
-            log.warning("list_images failed TV %s: %s", tv.id, e, exc_info=True)
+            log.warning("list_images failed TV %s category=%s: %s", tv.id, category, e, exc_info=True)
             conn.art = None
-            return []
+            return None
+
+    THUMB_QUEUE_TIMEOUT = 30.0   # max wait for our turn behind other thumbnail fetches
+    THUMB_FETCH_TIMEOUT = 10.0   # max time for one fetch (art request + socket transfer)
 
     async def get_thumbnail(self, tv: TV, content_id: str) -> bytes | None:
         conn = await self.get(tv)
         try:
+            await asyncio.wait_for(conn.thumb_sem.acquire(), timeout=self.THUMB_QUEUE_TIMEOUT)
+        except asyncio.TimeoutError:
+            log.debug("get_thumbnail TV %s content_id=%s: gave up waiting in queue", tv.id, content_id)
+            return None
+        try:
             art = await conn._ensure_art()
-            data = await art.get_thumbnail(content_id, as_bytes=True)
+            if not getattr(art, "art_service_available", True):
+                # samsungtvws is backing off; don't add more timeouts to its count
+                return None
+            # with a single content_id samsungtvws returns the raw bytes; the socket
+            # transfer itself has no timeout in the library, so bound it here
+            data = await asyncio.wait_for(art.get_thumbnail(content_id),
+                                          timeout=self.THUMB_FETCH_TIMEOUT)
             return data if isinstance(data, (bytes, bytearray)) else None
+        except asyncio.TimeoutError:
+            # a stalled thumbnail transfer says nothing about the websocket — keep the connection
+            log.debug("get_thumbnail TV %s content_id=%s: timed out", tv.id, content_id)
+            return None
         except Exception as e:
-            log.warning("get_thumbnail failed TV %s content_id=%s: %s", tv.id, content_id, e, exc_info=True)
+            log.debug("get_thumbnail failed TV %s content_id=%s: %s", tv.id, content_id, e, exc_info=True)
             conn.art = None
             return None
+        finally:
+            conn.thumb_sem.release()
 
     async def set_matte(self, tv: TV, remote_id: str, matte: str) -> bool:
         conn = await self.get(tv)

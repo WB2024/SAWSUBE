@@ -264,7 +264,11 @@ async def tv_thumb(tv_id: int, remote_id: str, s: AsyncSession = Depends(get_ses
     data = await tv_manager.get_thumbnail(tv, remote_id)
     if not data:
         raise HTTPException(404)
-    return Response(content=data, media_type="image/jpeg")
+    # let the browser cache it so revisiting the page doesn't refetch every thumbnail from
+    # the TV (failures above are not cached). Kept to 1h because the TV may reuse a
+    # content_id after the original image is deleted.
+    return Response(content=data, media_type="image/jpeg",
+                    headers={"Cache-Control": "private, max-age=3600"})
 
 
 # ── Sync all library images → TV ────────────────────────────────────────────
