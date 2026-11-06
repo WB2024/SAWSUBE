@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { api, TV, TVImage, TVStatus } from '../lib/api'
+import { useEffect, useRef, useState } from 'react'
+import { api, TV, TVContent, TVImage, TVStatus } from '../lib/api'
 import { useToast } from '../components/Toast'
 
 export default function TVControl() {
@@ -177,6 +177,122 @@ function TVPanel({ tv }: { tv: TV }) {
           {tvImages.length === 0 && <div className="text-muted text-sm">None on TV yet.</div>}
         </div>
       </div>
+
+      <TVContentPanel tv={tv} onChanged={refresh} />
+    </div>
+  )
+}
+
+const CATEGORIES: { value: string; label: string }[] = [
+  { value: '', label: 'All' },
+  { value: 'MY-C0002', label: 'My Photos' },
+  { value: 'MY-C0004', label: 'Favourites' },
+  { value: 'MY-C0008', label: 'Art Store' },
+]
+
+function TVContentPanel({ tv, onChanged }: { tv: TV; onChanged: () => void }) {
+  const t = useToast()
+  const [items, setItems] = useState<TVContent[] | null>(null)
+  const [category, setCategory] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // TV queries take seconds; only the latest request may update state, so a slow
+  // response for a previous category/TV can't overwrite the current one
+  const reqId = useRef(0)
+  const load = async (cat = category) => {
+    const id = ++reqId.current
+    setLoading(true)
+    setError(null)
+    try {
+      const q = cat ? `?category=${encodeURIComponent(cat)}` : ''
+      const data = await api.get<TVContent[]>(`/api/tvs/${tv.id}/art/available${q}`)
+      if (id === reqId.current) setItems(data)
+    } catch (e: any) {
+      if (id === reqId.current) {
+        setItems(null)
+        setError(e.message)
+      }
+    } finally {
+      if (id === reqId.current) setLoading(false)
+    }
+  }
+  useEffect(() => { setItems(null); load() }, [tv.id])
+
+  const show = async (c: TVContent) => {
+    try {
+      const r: any = await api.post(`/api/tvs/${tv.id}/art/available/${encodeURIComponent(c.content_id)}/show`)
+      t.push({ type: r.ok ? 'success' : 'error', text: r.ok ? `Showing ${c.content_id}` : 'TV refused to show image' })
+    } catch (e: any) { t.push({ type: 'error', text: e.message }) }
+  }
+
+  const remove = async (c: TVContent) => {
+    if (!confirm(`Delete ${c.content_id} from the TV? This cannot be undone.`)) return
+    try {
+      const r: any = await api.del(`/api/tvs/${tv.id}/art/available/${encodeURIComponent(c.content_id)}`)
+      if (!r.ok) throw new Error('Delete failed — the TV still lists this image')
+      setItems((prev) => prev?.filter((x) => x.content_id !== c.content_id) ?? null)
+      if (c.tv_image_id) onChanged()
+      t.push({ type: 'success', text: `Deleted ${c.content_id}` })
+    } catch (e: any) { t.push({ type: 'error', text: e.message }) }
+  }
+
+  const reconcile = async () => {
+    try {
+      const r: any = await api.post(`/api/tvs/${tv.id}/art/reconcile`)
+      t.push({ type: 'success', text: `${r.marked_removed} stale entr${r.marked_removed === 1 ? 'y' : 'ies'} cleaned up` })
+      onChanged()
+    } catch (e: any) { t.push({ type: 'error', text: e.message }) }
+  }
+
+  return (
+    <div className="card p-4 col-span-1 lg:col-span-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+        <div className="font-semibold">All images stored on the Frame {items ? `(${items.length})` : ''}</div>
+        <div className="flex gap-2 items-center">
+          <select className="input text-sm py-1" value={category}
+                  onChange={(e) => { setCategory(e.target.value); load(e.target.value) }}>
+            {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+          </select>
+          <button className="btn-ghost" disabled={loading} onClick={() => load()}>
+            {loading ? 'Loading…' : 'Reload'}
+          </button>
+          <button className="btn-ghost" title="Mark SAWSUBE entries that no longer exist on the TV as removed"
+                  onClick={reconcile}>Clean up stale</button>
+        </div>
+      </div>
+      {error && <div className="text-sm text-[#A33228]">Could not load from TV: {error}</div>}
+      {!error && items && items.length === 0 && <div className="text-muted text-sm">No images in this category.</div>}
+      {items && items.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 max-h-[32rem] overflow-auto">
+          {items.map((c) => (
+            <div key={c.content_id} className="relative group flex flex-col gap-1">
+              <img src={`/api/images/tv/${tv.id}/thumbnail/${encodeURIComponent(c.content_id)}`} alt={c.content_id}
+                   loading="lazy"
+                   className="w-full aspect-video object-cover rounded border border-border cursor-pointer bg-black/20"
+                   onClick={() => show(c)}
+                   onError={(e) => {
+                     const img = e.target as HTMLImageElement
+                     if (c.image_id && !img.dataset.fallback) {
+                       img.dataset.fallback = '1'
+                       img.src = `/api/images/${c.image_id}/thumbnail`
+                     }
+                   }} />
+              <button className="absolute top-1 right-1 btn-danger text-xs px-1 py-0.5 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                      onClick={() => remove(c)}>×</button>
+              <div className="text-[10px] text-muted leading-tight truncate" title={JSON.stringify(c, null, 2)}>
+                {c.content_id}
+                {c.width && c.height ? ` · ${c.width}×${c.height}` : ''}
+                {c.matte_id && c.matte_id !== 'none' ? ` · ${c.matte_id}` : ''}
+              </div>
+              <div className="flex gap-1 flex-wrap">
+                <span className="badge text-[10px]">{CATEGORIES.find((x) => x.value === c.category_id)?.label ?? c.category_id}</span>
+                {c.tv_image_id && <span className="badge text-[10px]">SAWSUBE</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

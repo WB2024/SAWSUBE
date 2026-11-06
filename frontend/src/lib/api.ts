@@ -48,6 +48,15 @@ export type TVImage = {
   id: number; tv_id: number; image_id: number; remote_id: string | null
   uploaded_at: string; is_on_tv: boolean; matte: string
 }
+/** Raw content entry reported by the Frame (get_content_list), enriched by the backend. */
+export type TVContent = {
+  content_id: string; category_id: string
+  matte_id?: string; portrait_matte_id?: string
+  width?: number; height?: number; image_date?: string
+  /** set when SAWSUBE tracks this content (it uploaded it) */
+  tv_image_id: number | null; image_id: number | null
+  [k: string]: any
+}
 export type Schedule = {
   id: number; tv_id: number; name: string; mode: string
   source_filter: any; interval_mins: number
