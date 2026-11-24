@@ -31,10 +31,21 @@ def _migrate_db_if_needed() -> None:
         shutil.copy2(str(old), str(new))
         log.warning("Migrated old framemanager.db → %s (one-time migration)", new)
 
-# Verbose DEBUG for TV-related modules so connection failures are fully visible
-for _tv_logger in ("backend.services.tv_manager", "samsungtvws", "samsungtvws.async_art",
-                   "samsungtvws.async_remote", "samsungtvws.encrypted"):
-    logging.getLogger(_tv_logger).setLevel(logging.DEBUG)
+TV_LOGGERS = ("backend.services.tv_manager", "samsungframetv")
+
+
+def configure_tv_logging(level_name: str) -> None:
+    """Set the log level of the TV modules (TV_LOG_LEVEL, e.g. DEBUG to trace
+    connection problems). Child loggers such as samsungframetv.async_art inherit it."""
+    level = logging.getLevelName(level_name.strip().upper())
+    if not isinstance(level, int):
+        log.warning("Invalid TV_LOG_LEVEL %r, using INFO", level_name)
+        level = logging.INFO
+    for name in TV_LOGGERS:
+        logging.getLogger(name).setLevel(level)
+
+
+configure_tv_logging(settings.TV_LOG_LEVEL)
 
 
 @asynccontextmanager

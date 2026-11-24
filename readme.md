@@ -166,6 +166,7 @@ cp .env.example .env
 | `HOST` | `0.0.0.0` | Interface to bind |
 | `PORT` | `8000` | Port the backend listens on |
 | `POLL_INTERVAL_SECS` | `20` | How often the backend polls each TV |
+| `TV_LOG_LEVEL` | `INFO` | Log level of the TV connection modules; set `DEBUG` to trace connection problems |
 | `SAWSUBE_URL` | `http://localhost:8000` | Public URL of this SAWSUBE instance — used by Tizen apps to phone home |
 
 #### Image source API keys

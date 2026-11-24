@@ -37,3 +37,26 @@ async def test_get_session_yields_session(tmp_workdir):
             await gen.__anext__()
         except StopAsyncIteration:
             pass
+
+
+def test_tv_log_level_default_is_info(tmp_workdir, monkeypatch):
+    import logging
+    monkeypatch.delenv("TV_LOG_LEVEL", raising=False)
+    import backend.main  # noqa: F401  (configures logging on import)
+    for name in ("backend.services.tv_manager", "samsungframetv", "samsungframetv.async_art"):
+        assert logging.getLogger(name).getEffectiveLevel() == logging.INFO
+
+
+def test_tv_log_level_from_env(tmp_workdir, monkeypatch):
+    import logging
+    monkeypatch.setenv("TV_LOG_LEVEL", "debug")
+    import backend.main  # noqa: F401
+    assert logging.getLogger("samsungframetv.async_art").getEffectiveLevel() == logging.DEBUG
+    assert logging.getLogger("backend.services.tv_manager").getEffectiveLevel() == logging.DEBUG
+
+
+def test_tv_log_level_invalid_falls_back_to_info(tmp_workdir):
+    import logging
+    from backend.main import configure_tv_logging
+    configure_tv_logging("chatty")
+    assert logging.getLogger("samsungframetv").level == logging.INFO
