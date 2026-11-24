@@ -18,11 +18,73 @@ log = logging.getLogger(__name__)
 try:
     from samsungframetv.async_art import SamsungTVAsyncArt
     from samsungframetv.async_remote import SamsungTVWSAsyncRemote
+    from samsungframetv.async_connection import SamsungTVWSAsyncConnection
+    from samsungframetv import exceptions as tv_exceptions, helper as tv_helper
+    from samsungframetv.event import IGNORE_EVENTS_AT_STARTUP
+
+    MS_CHANNEL_READY = "ms.channel.ready"
+    # Events the TV's own art-app client can interleave with the handshake.
+    _ART_STARTUP_NOISE = frozenset({
+        MS_CHANNEL_READY, "ms.channel.clientConnect", "ms.channel.clientDisconnect",
+    })
+
+    class FrameArt(SamsungTVAsyncArt):
+        """Art channel that does not depend on the exact startup event order.
+
+        The library expects ``ms.channel.connect`` as the first relevant event
+        and ``ms.channel.ready`` as the very next message. A 2023 32" Frame
+        (QE32LS03C) instead sends e.g. ``ms.channel.clientConnect`` (its own
+        art-app client) before ``connect`` and ``clientDisconnect`` before
+        ``ready``, which makes the base ``open()`` fail or time out.
+
+        Skip those interleaved events, remember ``ready`` whenever it is seen
+        (even before ``connect``) and only wait for it if it has not arrived yet.
+        """
+
+        def _websocket_event(self, event, response):
+            if event == MS_CHANNEL_READY:
+                self._frame_ready = True
+            super()._websocket_event(event, response)
+
+        async def _wait_for_connect_event(self, connection):
+            while True:
+                response = tv_helper.process_api_response(await connection.recv())
+                event = response.get("event", "*")
+                self._websocket_event(event, response)
+                if event not in IGNORE_EVENTS_AT_STARTUP and event not in _ART_STARTUP_NOISE:
+                    return response
+
+        async def open(self):
+            if self.is_alive():
+                return self.connection
+            self._frame_ready = False
+            # Skip SamsungTVAsyncArt.open: it insists that the next message is ready.
+            await SamsungTVWSAsyncConnection.open(self)
+
+            async def _wait_ready():
+                while not self._frame_ready:
+                    response = tv_helper.process_api_response(await self.connection.recv())
+                    self._websocket_event(response.get("event", "*"), response)
+
+            if not self._frame_ready:
+                try:
+                    await asyncio.wait_for(_wait_ready(), self.timeout or 10)
+                except asyncio.TimeoutError:
+                    await self.close()
+                    raise tv_exceptions.ConnectionFailure(
+                        f"{self.host} art channel did not send {MS_CHANNEL_READY}"
+                    ) from None
+                except Exception:
+                    await self.close()
+                    raise
+            return self.connection
+
     HAS_LIB = True
 except Exception as e:  # pragma: no cover
     log.warning("samsungframetv not available: %s", e)
     SamsungTVAsyncArt = None  # type: ignore
     SamsungTVWSAsyncRemote = None  # type: ignore
+    FrameArt = None  # type: ignore
     HAS_LIB = False
 
 try:
@@ -58,7 +120,7 @@ class TVConnection:
             return self.art
         async with self.lock:
             if self.art is None:
-                self.art = SamsungTVAsyncArt(
+                self.art = FrameArt(
                     host=self.ip, port=self.port, token_file=self.token_file, name=self.name or "SAWSUBE"
                 )
                 try:
