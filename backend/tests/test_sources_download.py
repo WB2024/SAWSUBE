@@ -73,3 +73,14 @@ async def test_duplicate_download_reuses_existing_image(serve, jpeg_bytes, tmp_w
     second = await common.download_and_register("https://example.com/a.jpg", "test", "a.jpg", {})
     assert second.id == first.id
     assert _files(tmp_workdir) == ["a.jpg"]
+
+
+async def test_downloads_send_descriptive_user_agent(tmp_workdir):
+    from backend.services.sources import common
+    client = common._http_client()
+    try:
+        ua = client.headers["user-agent"]
+    finally:
+        await client.aclose()
+    assert ua == common.USER_AGENT
+    assert ua.startswith("SAWSUBE/") and "python-httpx" not in ua

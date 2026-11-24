@@ -19,8 +19,14 @@ class DownloadTooLarge(Exception):
     pass
 
 
+# Some image hosts refuse httpx's default User-Agent: Wikimedia (most Openverse
+# results) answers 403 and asks clients to identify themselves.
+USER_AGENT = "SAWSUBE/1.0 (+https://github.com/WB2024/SAWSUBE)"
+
+
 def _http_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+    return httpx.AsyncClient(timeout=30.0, follow_redirects=True,
+                             headers={"User-Agent": USER_AGENT})
 
 
 def _remove_quietly(path: str) -> None:
