@@ -15,6 +15,14 @@ _USER_AGENT = "SAWSUBE/1.0 (self-hosted Samsung Frame art manager)"
 
 CATEGORIES = ("", "photograph", "illustration", "digitized_artwork")
 LICENSE_TYPES = ("", "commercial", "modification", "creative_commons", "public_domain")
+# UI choice -> Openverse query params. The API only accepts license_type values
+# all, all-cc, commercial and modification; public domain is a license filter.
+LICENSE_FILTERS = {
+    "commercial": {"license_type": "commercial"},
+    "modification": {"license_type": "modification"},
+    "creative_commons": {"license_type": "all-cc"},
+    "public_domain": {"license": "cc0,pdm"},
+}
 ASPECT_RATIOS = ("", "wide", "tall", "square")
 SIZES = ("", "large", "medium", "small")
 
@@ -76,8 +84,8 @@ async def search(
     }
     if category and category in CATEGORIES:
         params["category"] = category
-    if license_type and license_type in LICENSE_TYPES:
-        params["license_type"] = license_type
+    if license_type and license_type in LICENSE_FILTERS:
+        params.update(LICENSE_FILTERS[license_type])
     if aspect_ratio and aspect_ratio in ASPECT_RATIOS:
         params["aspect_ratio"] = aspect_ratio
     if size and size in SIZES:
