@@ -121,6 +121,47 @@ def remove_legacy_placeholder_token(token_file: str) -> None:
         pass
 
 
+_INT_SETTINGS = frozenset({"brightness", "color_temp", "motion_sensitivity"})
+
+
+def normalize_art_setting(key: str, value: Any) -> Any:
+    """Turn raw art-channel setting replies into plain values for the API.
+
+    Newer firmware answers ``{"item": "brightness", "value": "5", ...}`` rather
+    than a bare value, and numbers arrive as strings. The slideshow status is a
+    structured dict and is passed through unchanged.
+    """
+    if key == "slideshow":
+        return value
+    if isinstance(value, dict) and "value" in value:
+        value = value["value"]
+    if value is None:
+        return None
+    if key in _INT_SETTINGS:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    if key == "brightness_sensor":
+        return value is True or str(value).lower() in ("on", "true", "1")
+    return value
+
+
+def normalize_matte_list(res: Any) -> list[str]:
+    """Return unique matte type names from any get_matte_list() reply shape.
+
+    The library may return a list of names, a list of ``{"matte_type": ...}``
+    dicts, or a dict wrapping that list.
+    """
+    if isinstance(res, dict):
+        res = res.get("matte_types", res.get("matte_type_list", []))
+    if not isinstance(res, list):
+        return []
+    names = [m if isinstance(m, str) else m.get("matte_type")
+             for m in res if isinstance(m, (str, dict))]
+    return list(dict.fromkeys(m for m in names if isinstance(m, str) and m))
+
+
 class TVConnection:
     def __init__(self, tv: TV) -> None:
         self.tv_id = tv.id
@@ -434,7 +475,7 @@ class TVManager:
             ]:
                 try:
                     if hasattr(art, fn):
-                        out[key] = await getattr(art, fn)()
+                        out[key] = normalize_art_setting(key, await getattr(art, fn)())
                 except Exception:
                     out[key] = None
         except Exception as e:
@@ -479,10 +520,7 @@ class TVManager:
         conn = await self.get(tv)
         try:
             art = await conn._ensure_art()
-            res = await art.get_matte_list()
-            if isinstance(res, list):
-                return res
-            return list(res) if res else []
+            return normalize_matte_list(await art.get_matte_list())
         except Exception as e:
             log.warning("list_mattes failed TV %s: %s", tv.id, e, exc_info=True)
             conn.art = None

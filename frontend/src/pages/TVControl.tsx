@@ -42,7 +42,10 @@ function TVPanel({ tv }: { tv: TV }) {
     try { setStatus(await api.get(`/api/tvs/${tv.id}/status`)) } catch {}
     try { setInfo(await api.get(`/api/tvs/${tv.id}/info`)) } catch {}
     try { setSettings(await api.get(`/api/tvs/${tv.id}/art/settings`)) } catch {}
-    try { setMattes(await api.get(`/api/tvs/${tv.id}/art/mattes`)) } catch {}
+    try {
+      const raw = await api.get<any[]>(`/api/tvs/${tv.id}/art/mattes`)
+      setMattes(Array.isArray(raw) ? raw.map(m => typeof m === 'string' ? m : m?.matte_type).filter((m): m is string => typeof m === 'string') : [])
+    } catch {}
     try { setTVImages(await api.get(`/api/images/tv/${tv.id}`)) } catch {}
   }
   useEffect(() => { refresh() }, [tv.id])
