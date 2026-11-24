@@ -13,14 +13,14 @@ from .ws_manager import ws_manager
 
 log = logging.getLogger(__name__)
 
-# samsungtvws (NickWaterton fork) optional import — guarded so app still boots
-# even if user hasn't installed deps yet.
+# samsungframetv (NickWaterton fork, formerly published as samsungtvws) optional
+# import — guarded so app still boots even if user hasn't installed deps yet.
 try:
-    from samsungtvws.async_art import SamsungTVAsyncArt
-    from samsungtvws.async_remote import SamsungTVWSAsyncRemote
+    from samsungframetv.async_art import SamsungTVAsyncArt
+    from samsungframetv.async_remote import SamsungTVWSAsyncRemote
     HAS_LIB = True
 except Exception as e:  # pragma: no cover
-    log.warning("samsungtvws not available: %s", e)
+    log.warning("samsungframetv not available: %s", e)
     SamsungTVAsyncArt = None  # type: ignore
     SamsungTVWSAsyncRemote = None  # type: ignore
     HAS_LIB = False
@@ -53,7 +53,7 @@ class TVConnection:
 
     async def _ensure_art(self) -> Any:
         if not HAS_LIB:
-            raise RuntimeError("samsungtvws library not installed")
+            raise RuntimeError("samsungframetv library not installed")
         if self.art is not None:
             return self.art
         async with self.lock:
@@ -70,7 +70,7 @@ class TVConnection:
 
     async def _ensure_remote(self) -> Any:
         if not HAS_LIB:
-            raise RuntimeError("samsungtvws library not installed")
+            raise RuntimeError("samsungframetv library not installed")
         if self.remote is not None:
             return self.remote
         async with self.lock:

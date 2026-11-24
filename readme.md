@@ -423,7 +423,7 @@ SAWSUBE clones/builds these from local source paths you configure in `.env`. Cre
 All TV communication goes through [NickWaterton's fork of samsung-tv-ws-api](https://github.com/NickWaterton/samsung-tv-ws-api):
 
 ```
-samsungtvws[async,encrypted] @ git+https://github.com/NickWaterton/samsung-tv-ws-api.git
+samsungframetv[encrypted] @ git+https://github.com/NickWaterton/samsung-tv-ws-api.git@66a4d5bceb85e228dd3b6d15697ac1ae960f84f3
 ```
 
 The backend maintains a **persistent connection pool** — one WebSocket per TV, opened lazily and kept alive. Connections are never opened per-request (doing so triggers the pairing prompt on every action). Every TV call is wrapped in try/except — an offline TV never crashes the app.

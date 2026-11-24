@@ -61,7 +61,7 @@ async def pair(tv_id: int, s: AsyncSession = Depends(get_session)):
     if not tv:
         raise HTTPException(404)
     if not HAS_LIB:
-        raise HTTPException(500, "samsungtvws library not installed")
+        raise HTTPException(500, "samsungframetv library not installed")
     ok = await tv_manager.pair(tv)
     return {"paired": ok}
 
