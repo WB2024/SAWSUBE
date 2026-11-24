@@ -30,7 +30,7 @@ No Samsung account. No subscription. No cloud.
   - Results cached by hash — re-uploads skip reprocessing
 - **Scheduling** — automated art rotation with random, sequential, or favourites-weighted modes; optional time-of-day windows and day-of-week filters
 - **Folder watcher** — point it at a folder and new images appear in the library automatically
-- **External sources** — browse and import from Unsplash, Pexels, Pixabay, Openverse, NASA Astronomy Picture of the Day, Rijksmuseum, and Reddit image posts
+- **External sources** — browse and import from Unsplash, Pexels, Pixabay, Openverse, NASA Astronomy Picture of the Day, Rijksmuseum, The Met (public-domain paintings, no key needed), and Reddit image posts
 
 ### App Management (TizenBrew)
 - **One-click app installation** onto your Samsung TV from a curated catalogue:
@@ -311,7 +311,7 @@ Per-TV panel: pair, power, Art Mode on/off, brightness, colour temperature, slid
 Scan the network for Frame TVs or add by IP.
 
 ### Sources
-Import images from Unsplash, Pexels, Pixabay, Openverse, NASA APOD, Rijksmuseum, Reddit.
+Import images from Unsplash, Pexels, Pixabay, Openverse, NASA APOD, Rijksmuseum, The Met, Reddit.
 
 ### Schedules
 Automated art rotation — random, sequential, or favourites-weighted. Optional time windows and day-of-week filters.
@@ -379,6 +379,7 @@ SAWSUBE/
 │   │       ├── openverse.py
 │   │       ├── nasa_apod.py
 │   │       ├── rijksmuseum.py
+│   │       ├── met.py
 │   │       └── reddit.py
 │   └── data/
 │       └── tizen_apps.json         # Curated debloat app database

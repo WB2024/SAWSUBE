@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import os
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,8 +10,8 @@ from ..database import get_session
 from ..models.folder import WatchFolder
 from ..schemas import FolderCreate, FolderOut, ImportPayload, ImageOut
 from ..services.watcher import watcher, scan_folder_now
-from ..services.sources import unsplash, nasa_apod, rijksmuseum, reddit, reddit_gallery, pexels, pixabay, openverse
-from ..services.sources.common import download_and_register
+from ..services.sources import unsplash, nasa_apod, rijksmuseum, reddit, reddit_gallery, pexels, pixabay, openverse, met
+from ..services.sources.common import download_and_register, download_urllib
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
@@ -244,4 +245,35 @@ async def openverse_import(payload: ImportPayload):
     )
     if not img:
         raise HTTPException(500, "download failed")
+    return img
+
+
+
+# ── The Met (public-domain paintings, no API key) ─────────────────────────
+@router.get("/met/search")
+async def met_search(q: str = Query(..., min_length=1, max_length=100), per_page: int = 20):
+    try:
+        return await met.search(q, max(1, min(per_page, 50)))
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"The Met collection API is unavailable: {e}")
+
+
+@router.post("/met/import", response_model=ImageOut)
+async def met_import(payload: ImportPayload):
+    if not payload.id or not payload.id.isdigit():
+        raise HTTPException(400, "numeric Met object id required")
+    try:
+        info = await met.get(payload.id)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"The Met collection API is unavailable: {e}")
+    if not info:
+        raise HTTPException(404, "no public-domain painting image for this object")
+    img = await download_and_register(
+        info["url"], "met", f"met_{info['id']}.jpg",
+        {"title": info.get("title"), "credit": info.get("credit"), "date": info.get("date"),
+         "html": info.get("html"), "license": info.get("license")},
+        downloader=download_urllib,  # the Met image CDN blocks httpx's TLS fingerprint
+    )
+    if not img:
+        raise HTTPException(502, "download failed")
     return img

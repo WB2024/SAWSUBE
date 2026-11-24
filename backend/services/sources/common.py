@@ -1,7 +1,12 @@
 from __future__ import annotations
+import asyncio
 import os
 import logging
+import ssl
+import urllib.error
+import urllib.request
 from datetime import datetime
+from typing import Awaitable, Callable
 import httpx
 from sqlalchemy import select
 from ...config import settings
@@ -53,7 +58,38 @@ async def _download(url: str, dest: str) -> None:
                     f.write(chunk)
 
 
-async def download_and_register(url: str, source: str, filename: str, meta: dict) -> Image | None:
+_SSL_CTX = ssl.create_default_context()
+
+
+def _download_urllib_sync(url: str, dest: str) -> None:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, context=_SSL_CTX, timeout=30) as resp:
+        declared = resp.headers.get("Content-Length", "")
+        if declared.isdigit() and int(declared) > MAX_DOWNLOAD_BYTES:
+            raise DownloadTooLarge(f"{declared} bytes")
+        size = 0
+        with open(dest, "wb") as f:
+            while chunk := resp.read(64 * 1024):
+                size += len(chunk)
+                if size > MAX_DOWNLOAD_BYTES:
+                    raise DownloadTooLarge(f"more than {MAX_DOWNLOAD_BYTES} bytes")
+                f.write(chunk)
+
+
+async def download_urllib(url: str, dest: str) -> None:
+    """Like _download, but through urllib in a thread.
+
+    For hosts whose bot protection rejects httpx's TLS fingerprint and serves
+    an HTML challenge page instead of the image (images.metmuseum.org; see
+    reddit.py for the same issue with Reddit)."""
+    await asyncio.to_thread(_download_urllib_sync, url, dest)
+
+
+Downloader = Callable[[str, str], Awaitable[None]]
+
+
+async def download_and_register(url: str, source: str, filename: str, meta: dict,
+                                downloader: Downloader | None = None) -> Image | None:
     dest_dir = os.path.join(settings.IMAGE_FOLDER, source)
     os.makedirs(dest_dir, exist_ok=True)
     safe_fn = "".join(c for c in filename if c.isalnum() or c in "._-") or "image.jpg"
@@ -66,8 +102,8 @@ async def download_and_register(url: str, source: str, filename: str, meta: dict
         dest = f"{base}_{n}{ext}"
         n += 1
     try:
-        await _download(url, dest)
-    except (httpx.HTTPError, DownloadTooLarge) as e:
+        await (downloader or _download)(url, dest)
+    except (httpx.HTTPError, urllib.error.URLError, DownloadTooLarge) as e:
         log.warning("download failed for %s: %s", url, e)
         _remove_quietly(dest)
         return None

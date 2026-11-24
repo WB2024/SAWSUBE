@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { useToast } from '../components/Toast'
 
-const TABS = ['Unsplash', 'NASA APOD', 'Rijksmuseum', 'Reddit', 'Reddit Gallery', 'Pexels', 'Pixabay', 'Openverse'] as const
+const TABS = ['Unsplash', 'NASA APOD', 'Rijksmuseum', 'Reddit', 'Reddit Gallery', 'Pexels', 'Pixabay', 'Openverse', 'The Met'] as const
 type Tab = typeof TABS[number]
 
 export default function Sources() {
@@ -24,6 +24,7 @@ export default function Sources() {
       {tab === 'Pexels' && <Pexels />}
       {tab === 'Pixabay' && <Pixabay />}
       {tab === 'Openverse' && <Openverse />}
+      {tab === 'The Met' && <Met />}
     </div>
   )
 }
@@ -276,6 +277,42 @@ function RedditGallery() {
             meta: { title: it.title, credit: it.credit, html: it.html, subreddit: it.subreddit, ext: it.ext },
           })
           t.push({ type: 'success', text: 'Imported' })
+        } catch (e: any) { t.push({ type: 'error', text: e.message }) }
+      }} />
+    </div>
+  )
+}
+
+function Met() {
+  const [q, setQ] = useState('Monet')
+  const [items, setItems] = useState<any[]>([])
+  const [busy, setBusy] = useState(false)
+  const [searched, setSearched] = useState(false)
+  const t = useToast()
+  const search = async () => {
+    if (busy || !q.trim()) return
+    setBusy(true)
+    try {
+      setItems(await api.get(`/api/sources/met/search?q=${encodeURIComponent(q.trim())}`))
+      setSearched(true)
+    } catch (e: any) { t.push({ type: 'error', text: e.message }) }
+    finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted">
+        Public-domain (CC0) paintings from The Metropolitan Museum of Art. No API key needed.
+      </p>
+      <div className="flex gap-2">
+        <input className="input" aria-label="Search The Met" value={q} onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && search()} placeholder="Monet, Turner, landscape…" />
+        <button className="btn-primary" disabled={busy || !q.trim()} onClick={search}>{busy ? 'Searching…' : 'Search'}</button>
+      </div>
+      {searched && !busy && items.length === 0 && <p className="text-sm text-muted">No public-domain paintings found.</p>}
+      <Grid items={items} onImport={async (it) => {
+        try {
+          await api.post('/api/sources/met/import', { id: it.id })
+          t.push({ type: 'success', text: `Imported ${it.title || 'artwork'} to Library` })
         } catch (e: any) { t.push({ type: 'error', text: e.message }) }
       }} />
     </div>
