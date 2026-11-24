@@ -396,7 +396,7 @@ class TVManager:
             with open(file_path, "rb") as f:
                 data = f.read()
             log.debug("upload_image: uploading %s to TV %s", file_path, tv.id)
-            content_id = await art.upload(data, file_type=file_type, matte=matte)
+            content_id = await art.upload(data, file_type=file_type, matte=matte, portrait_matte=matte)
             log.info("upload_image: TV %s accepted %s → remote_id=%s", tv.id, file_path, content_id)
             return content_id
         except Exception as e:
