@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     POLL_INTERVAL_SECS: int = 20
+    TV_LOG_LEVEL: str = "INFO"  # DEBUG to trace TV connection problems
     FRONTEND_DIST: str = "./frontend/dist"
     TIZENBREW_DOWNLOAD_DIR: str = "./data/tizenbrew"
     TIZEN_SDB_PATH: str = ""

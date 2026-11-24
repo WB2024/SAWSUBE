@@ -31,10 +31,21 @@ def _migrate_db_if_needed() -> None:
         shutil.copy2(str(old), str(new))
         log.warning("Migrated old framemanager.db → %s (one-time migration)", new)
 
-# Verbose DEBUG for TV-related modules so connection failures are fully visible
-for _tv_logger in ("backend.services.tv_manager", "samsungtvws", "samsungtvws.async_art",
-                   "samsungtvws.async_remote", "samsungtvws.encrypted"):
-    logging.getLogger(_tv_logger).setLevel(logging.DEBUG)
+TV_LOGGERS = ("backend.services.tv_manager", "samsungframetv")
+
+
+def configure_tv_logging(level_name: str) -> None:
+    """Set the log level of the TV modules (TV_LOG_LEVEL, e.g. DEBUG to trace
+    connection problems). Child loggers such as samsungframetv.async_art inherit it."""
+    level = logging.getLevelName(level_name.strip().upper())
+    if not isinstance(level, int):
+        log.warning("Invalid TV_LOG_LEVEL %r, using INFO", level_name)
+        level = logging.INFO
+    for name in TV_LOGGERS:
+        logging.getLogger(name).setLevel(level)
+
+
+configure_tv_logging(settings.TV_LOG_LEVEL)
 
 
 @asynccontextmanager
@@ -96,10 +107,12 @@ if os.path.isdir(settings.FRONTEND_DIST):
         # Never serve SPA for API or WS routes — let them 404 properly
         if full_path.startswith("api/") or full_path == "ws" or full_path.startswith("ws/"):
             raise HTTPException(status_code=404, detail="Not Found")
-        candidate = os.path.join(settings.FRONTEND_DIST, full_path)
-        if full_path and os.path.isfile(candidate):
+        root = os.path.realpath(settings.FRONTEND_DIST)
+        candidate = os.path.realpath(os.path.join(root, full_path))
+        # realpath resolves "..", symlinks and absolute paths: only serve files under root
+        if full_path and os.path.commonpath([root, candidate]) == root and os.path.isfile(candidate):
             return FileResponse(candidate)
-        return FileResponse(os.path.join(settings.FRONTEND_DIST, "index.html"))
+        return FileResponse(os.path.join(root, "index.html"))
 
 
 def main() -> None:

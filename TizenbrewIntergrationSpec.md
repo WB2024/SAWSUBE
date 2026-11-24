@@ -33,11 +33,11 @@ Integrate a fully guided, point-and-click TizenBrew management experience into S
 - **DB:** SQLite via SQLAlchemy async ORM (`aiosqlite`). DB init in `backend/database.py`. All models in `backend/models/`.
 - **Entry point:** `backend/main.py`. Routers are registered at the bottom of `main.py` via `app.include_router(...)`.
 - **Router pattern:** Each domain has its own file in `backend/routers/` using `APIRouter(prefix="/api/...", tags=[...])`.
-- **Service layer:** `backend/services/` — pure Python services. The most relevant is `tv_manager.py` which holds `TVManager` (singleton `tv_manager`) that manages WebSocket connections to TVs via `samsungtvws`.
+- **Service layer:** `backend/services/` — pure Python services. The most relevant is `tv_manager.py` which holds `TVManager` (singleton `tv_manager`) that manages WebSocket connections to TVs via `samsungframetv`.
 - **TV Model** (`backend/models/tv.py`): Has `id, name, ip, mac, port, token_path, model, year, last_seen, added_at`. `model` and `year` fields already exist but are **not yet being populated** — this integration should populate them.
 - **Config** (`backend/config.py`): Uses `pydantic-settings`. All env vars live here.
 - **WebSocket** (`backend/routers/ws.py` + `backend/services/ws_manager.py`): Used for real-time push to frontend. `ws_manager.broadcast(dict)` sends JSON to all connected frontend clients.
-- **Requirements:** `backend/requirements.txt` — uses `samsungtvws[async,encrypted] @ git+https://github.com/NickWaterton/samsung-tv-ws-api.git`
+- **Requirements:** `backend/requirements.txt` — uses `samsungframetv[encrypted] @ git+https://github.com/NickWaterton/samsung-tv-ws-api.git@66a4d5bceb85e228dd3b6d15697ac1ae960f84f3`
 
 ### 2.2 SAWSUBE Frontend
 

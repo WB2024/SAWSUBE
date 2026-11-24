@@ -82,3 +82,19 @@ async def test_discover_returns_results(app_client):
         r = await app_client.get("/api/tvs/discover")
         assert r.status_code == 200
         assert r.json() == payload
+
+
+@pytest.mark.parametrize("token,paired", [
+    (None, False), ("developer-mode\n", False), ("15614867", True),
+])
+async def test_status_paired_requires_real_token(app_client, token, paired):
+    import os
+    from pathlib import Path
+    r = await app_client.post("/api/tvs", json={"name": "Frame", "ip": "10.0.0.8"})
+    body = r.json()
+    if token is not None:
+        Path(os.environ["TOKEN_DIR"], f"tv_{body['id']}.token").write_text(token)
+    offline = {"online": False, "artmode": None, "current": None}
+    with patch("backend.routers.tv.tv_manager.fetch_status", new=AsyncMock(return_value=offline)):
+        r = await app_client.get(f"/api/tvs/{body['id']}/status")
+    assert r.json()["paired"] is paired

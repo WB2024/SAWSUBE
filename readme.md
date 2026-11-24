@@ -30,7 +30,7 @@ No Samsung account. No subscription. No cloud.
   - Results cached by hash — re-uploads skip reprocessing
 - **Scheduling** — automated art rotation with random, sequential, or favourites-weighted modes; optional time-of-day windows and day-of-week filters
 - **Folder watcher** — point it at a folder and new images appear in the library automatically
-- **External sources** — browse and import from Unsplash, Pexels, Pixabay, Openverse, NASA Astronomy Picture of the Day, Rijksmuseum, and Reddit image posts
+- **External sources** — browse and import from Unsplash, Pexels, Pixabay, Openverse, NASA Astronomy Picture of the Day, Rijksmuseum, The Met (public-domain paintings, no key needed), and Reddit image posts
 
 ### App Management (TizenBrew)
 - **One-click app installation** onto your Samsung TV from a curated catalogue:
@@ -166,6 +166,7 @@ cp .env.example .env
 | `HOST` | `0.0.0.0` | Interface to bind |
 | `PORT` | `8000` | Port the backend listens on |
 | `POLL_INTERVAL_SECS` | `20` | How often the backend polls each TV |
+| `TV_LOG_LEVEL` | `INFO` | Log level of the TV connection modules; set `DEBUG` to trace connection problems |
 | `SAWSUBE_URL` | `http://localhost:8000` | Public URL of this SAWSUBE instance — used by Tizen apps to phone home |
 
 #### Image source API keys
@@ -310,7 +311,7 @@ Per-TV panel: pair, power, Art Mode on/off, brightness, colour temperature, slid
 Scan the network for Frame TVs or add by IP.
 
 ### Sources
-Import images from Unsplash, Pexels, Pixabay, Openverse, NASA APOD, Rijksmuseum, Reddit.
+Import images from Unsplash, Pexels, Pixabay, Openverse, NASA APOD, Rijksmuseum, The Met, Reddit.
 
 ### Schedules
 Automated art rotation — random, sequential, or favourites-weighted. Optional time windows and day-of-week filters.
@@ -378,6 +379,7 @@ SAWSUBE/
 │   │       ├── openverse.py
 │   │       ├── nasa_apod.py
 │   │       ├── rijksmuseum.py
+│   │       ├── met.py
 │   │       └── reddit.py
 │   └── data/
 │       └── tizen_apps.json         # Curated debloat app database
@@ -423,7 +425,7 @@ SAWSUBE clones/builds these from local source paths you configure in `.env`. Cre
 All TV communication goes through [NickWaterton's fork of samsung-tv-ws-api](https://github.com/NickWaterton/samsung-tv-ws-api):
 
 ```
-samsungtvws[async,encrypted] @ git+https://github.com/NickWaterton/samsung-tv-ws-api.git
+samsungframetv[encrypted] @ git+https://github.com/NickWaterton/samsung-tv-ws-api.git@66a4d5bceb85e228dd3b6d15697ac1ae960f84f3
 ```
 
 The backend maintains a **persistent connection pool** — one WebSocket per TV, opened lazily and kept alive. Connections are never opened per-request (doing so triggers the pairing prompt on every action). Every TV call is wrapped in try/except — an offline TV never crashes the app.

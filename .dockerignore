@@ -1,0 +1,10 @@
+# Keep secrets, runtime data and local build artefacts out of the image build context
+.git
+.env
+data
+images
+Screenshots
+**/__pycache__
+**/.pytest_cache
+frontend/node_modules
+frontend/dist

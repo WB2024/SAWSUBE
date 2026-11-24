@@ -1,7 +1,12 @@
 from __future__ import annotations
+import asyncio
 import os
 import logging
+import ssl
+import urllib.error
+import urllib.request
 from datetime import datetime
+from typing import Awaitable, Callable
 import httpx
 from sqlalchemy import select
 from ...config import settings
@@ -12,7 +17,79 @@ from ..image_processor import sha256_file, process_image, make_thumbnail
 log = logging.getLogger(__name__)
 
 
-async def download_and_register(url: str, source: str, filename: str, meta: dict) -> Image | None:
+MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024  # far above any real artwork, stops runaway downloads
+
+
+class DownloadTooLarge(Exception):
+    pass
+
+
+# Some image hosts refuse httpx's default User-Agent: Wikimedia (most Openverse
+# results) answers 403 and asks clients to identify themselves.
+USER_AGENT = "SAWSUBE/1.0 (+https://github.com/WB2024/SAWSUBE)"
+
+
+def _http_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=30.0, follow_redirects=True,
+                             headers={"User-Agent": USER_AGENT})
+
+
+def _remove_quietly(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+async def _download(url: str, dest: str) -> None:
+    """Stream ``url`` to ``dest``, refusing anything over MAX_DOWNLOAD_BYTES."""
+    async with _http_client() as client:
+        async with client.stream("GET", url) as r:
+            r.raise_for_status()
+            declared = r.headers.get("content-length", "")
+            if declared.isdigit() and int(declared) > MAX_DOWNLOAD_BYTES:
+                raise DownloadTooLarge(f"{declared} bytes")
+            size = 0
+            with open(dest, "wb") as f:
+                async for chunk in r.aiter_bytes():
+                    size += len(chunk)
+                    if size > MAX_DOWNLOAD_BYTES:
+                        raise DownloadTooLarge(f"more than {MAX_DOWNLOAD_BYTES} bytes")
+                    f.write(chunk)
+
+
+_SSL_CTX = ssl.create_default_context()
+
+
+def _download_urllib_sync(url: str, dest: str) -> None:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, context=_SSL_CTX, timeout=30) as resp:
+        declared = resp.headers.get("Content-Length", "")
+        if declared.isdigit() and int(declared) > MAX_DOWNLOAD_BYTES:
+            raise DownloadTooLarge(f"{declared} bytes")
+        size = 0
+        with open(dest, "wb") as f:
+            while chunk := resp.read(64 * 1024):
+                size += len(chunk)
+                if size > MAX_DOWNLOAD_BYTES:
+                    raise DownloadTooLarge(f"more than {MAX_DOWNLOAD_BYTES} bytes")
+                f.write(chunk)
+
+
+async def download_urllib(url: str, dest: str) -> None:
+    """Like _download, but through urllib in a thread.
+
+    For hosts whose bot protection rejects httpx's TLS fingerprint and serves
+    an HTML challenge page instead of the image (images.metmuseum.org; see
+    reddit.py for the same issue with Reddit)."""
+    await asyncio.to_thread(_download_urllib_sync, url, dest)
+
+
+Downloader = Callable[[str, str], Awaitable[None]]
+
+
+async def download_and_register(url: str, source: str, filename: str, meta: dict,
+                                downloader: Downloader | None = None) -> Image | None:
     dest_dir = os.path.join(settings.IMAGE_FOLDER, source)
     os.makedirs(dest_dir, exist_ok=True)
     safe_fn = "".join(c for c in filename if c.isalnum() or c in "._-") or "image.jpg"
@@ -24,25 +101,28 @@ async def download_and_register(url: str, source: str, filename: str, meta: dict
     while os.path.exists(dest):
         dest = f"{base}_{n}{ext}"
         n += 1
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        r = await client.get(url)
-        r.raise_for_status()
-        with open(dest, "wb") as f:
-            f.write(r.content)
+    try:
+        await (downloader or _download)(url, dest)
+    except (httpx.HTTPError, urllib.error.URLError, DownloadTooLarge) as e:
+        log.warning("download failed for %s: %s", url, e)
+        _remove_quietly(dest)
+        return None
+    except BaseException:
+        _remove_quietly(dest)
+        raise
     digest = sha256_file(dest)
     async with SessionLocal() as s:
         existing = (await s.execute(select(Image).where(Image.file_hash == digest))).scalar_one_or_none()
         if existing:
-            try:
-                os.remove(dest)
-            except Exception:
-                pass
+            _remove_quietly(dest)
             return existing
         try:
             processed_path, w, h = await process_image(dest, digest)
             thumb = await make_thumbnail(dest, digest)
         except Exception as e:
-            log.warning("process failed: %s", e)
+            # not a decodable image (HTML error page, truncated file...): don't keep it
+            log.warning("process failed for %s: %s", url, e)
+            _remove_quietly(dest)
             return None
         img = Image(
             local_path=dest, filename=os.path.basename(dest),
