@@ -14,10 +14,11 @@ async def test_upload_uses_selected_matte_for_portrait(tmp_workdir, make_jpeg, m
             calls.append(kwargs)
             return "MY_F0001"
 
-    async def fake_ensure_art(self):
+    async def fake_new_art(self):
         return FakeArt()
 
-    monkeypatch.setattr(tm.TVConnection, "_ensure_art", fake_ensure_art)
+    monkeypatch.setattr(tm.TVConnection, "_new_art", fake_new_art)
+    monkeypatch.setattr(tm, "HAS_LIB", True)
     m = tm.TVManager()
     tv = SimpleNamespace(id=1, ip="192.0.2.10", port=8002, mac=None, name="t", token_path=None)
     try:

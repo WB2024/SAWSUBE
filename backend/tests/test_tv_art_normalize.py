@@ -51,10 +51,11 @@ async def test_get_settings_and_mattes_use_normalizers(tmp_workdir, monkeypatch)
         async def get_brightness_sensor_setting(self): return {"value": "off"}
         async def get_matte_list(self): return [{"matte_type": "none"}, {"matte_type": "modern"}]
 
-    async def fake_ensure_art(self):
+    async def fake_new_art(self):
         return FakeArt()
 
-    monkeypatch.setattr(tm.TVConnection, "_ensure_art", fake_ensure_art)
+    monkeypatch.setattr(tm.TVConnection, "_new_art", fake_new_art)
+    monkeypatch.setattr(tm, "HAS_LIB", True)
     m = tm.TVManager()
     tv = SimpleNamespace(id=1, ip="192.0.2.10", port=8002, mac=None, name="t", token_path=None)
     try:
