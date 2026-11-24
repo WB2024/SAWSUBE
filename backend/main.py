@@ -107,10 +107,12 @@ if os.path.isdir(settings.FRONTEND_DIST):
         # Never serve SPA for API or WS routes — let them 404 properly
         if full_path.startswith("api/") or full_path == "ws" or full_path.startswith("ws/"):
             raise HTTPException(status_code=404, detail="Not Found")
-        candidate = os.path.join(settings.FRONTEND_DIST, full_path)
-        if full_path and os.path.isfile(candidate):
+        root = os.path.realpath(settings.FRONTEND_DIST)
+        candidate = os.path.realpath(os.path.join(root, full_path))
+        # realpath resolves "..", symlinks and absolute paths: only serve files under root
+        if full_path and os.path.commonpath([root, candidate]) == root and os.path.isfile(candidate):
             return FileResponse(candidate)
-        return FileResponse(os.path.join(settings.FRONTEND_DIST, "index.html"))
+        return FileResponse(os.path.join(root, "index.html"))
 
 
 def main() -> None:
