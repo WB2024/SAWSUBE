@@ -34,7 +34,8 @@ async def test_delete_folder_404(app_client):
 
 async def test_unsplash_search_mocked(app_client):
     fake = [{"id": "x", "url": "https://example.com/x.jpg"}]
-    with patch("backend.routers.sources.unsplash.search",
+    with patch("backend.routers.sources.settings.UNSPLASH_API_KEY", "test-key"), \
+         patch("backend.routers.sources.unsplash.search",
                new=AsyncMock(return_value=fake)):
         r = await app_client.get("/api/sources/unsplash/search?q=mountain")
         assert r.json() == fake

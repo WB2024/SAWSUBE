@@ -166,6 +166,7 @@ cp .env.example .env
 | `HOST` | `0.0.0.0` | Interface to bind |
 | `PORT` | `8000` | Port the backend listens on |
 | `POLL_INTERVAL_SECS` | `20` | How often the backend polls each TV |
+| `TV_LOG_LEVEL` | `INFO` | Log level of the TV connection modules; set `DEBUG` to trace connection problems |
 | `SAWSUBE_URL` | `http://localhost:8000` | Public URL of this SAWSUBE instance — used by Tizen apps to phone home |
 
 #### Image source API keys
@@ -423,7 +424,7 @@ SAWSUBE clones/builds these from local source paths you configure in `.env`. Cre
 All TV communication goes through [NickWaterton's fork of samsung-tv-ws-api](https://github.com/NickWaterton/samsung-tv-ws-api):
 
 ```
-samsungtvws[async,encrypted] @ git+https://github.com/NickWaterton/samsung-tv-ws-api.git
+samsungframetv[encrypted] @ git+https://github.com/NickWaterton/samsung-tv-ws-api.git@66a4d5bceb85e228dd3b6d15697ac1ae960f84f3
 ```
 
 The backend maintains a **persistent connection pool** — one WebSocket per TV, opened lazily and kept alive. Connections are never opened per-request (doing so triggers the pairing prompt on every action). Every TV call is wrapped in try/except — an offline TV never crashes the app.

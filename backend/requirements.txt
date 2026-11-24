@@ -2,7 +2,7 @@ fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
-sqlalchemy>=2.0.25
+sqlalchemy[asyncio]>=2.0.25
 aiosqlite>=0.19.0
 Pillow>=10.2.0
 APScheduler>=3.10.4
@@ -11,8 +11,9 @@ httpx>=0.26.0
 python-multipart>=0.0.7
 wakeonlan>=3.1.0
 websockets>=12.0
-# NickWaterton fork — this is what the local venv uses (v3.0.5) and is required for
-# async_art / async_remote to work correctly. The xchwarze PyPI release is a different
-# codebase and causes "samsungtvws library not installed" in Docker.
-samsungtvws[async,encrypted] @ git+https://github.com/NickWaterton/samsung-tv-ws-api.git
+# NickWaterton fork, required for async_art / async_remote. It is now published as the
+# `samsungframetv` package (the old `samsungtvws` import name no longer exists there).
+# Pinned to a known-good commit; the xchwarze PyPI `samsungtvws` release is a different
+# codebase and is not compatible.
+samsungframetv[encrypted] @ git+https://github.com/NickWaterton/samsung-tv-ws-api.git@66a4d5bceb85e228dd3b6d15697ac1ae960f84f3
 

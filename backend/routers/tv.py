@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_session
 from ..models.tv import TV
 from ..schemas import TVCreate, TVOut, TVStatus
-from ..services.tv_manager import tv_manager, token_path_for, HAS_LIB
+from ..services.tv_manager import tv_manager, token_path_for, has_real_token, HAS_LIB
 from ..services.discovery import discover_tvs
 
 router = APIRouter(prefix="/api/tvs", tags=["tvs"])
@@ -61,7 +61,7 @@ async def pair(tv_id: int, s: AsyncSession = Depends(get_session)):
     if not tv:
         raise HTTPException(404)
     if not HAS_LIB:
-        raise HTTPException(500, "samsungtvws library not installed")
+        raise HTTPException(500, "samsungframetv library not installed")
     ok = await tv_manager.pair(tv)
     return {"paired": ok}
 
@@ -72,13 +72,12 @@ async def status(tv_id: int, s: AsyncSession = Depends(get_session)):
     if not tv:
         raise HTTPException(404)
     st = await tv_manager.fetch_status(tv_id)
-    import os
     return TVStatus(
         id=tv_id,
         online=st.get("online", False),
         artmode=st.get("artmode"),
         current=st.get("current"),
-        paired=os.path.exists(token_path_for(tv)),
+        paired=has_real_token(token_path_for(tv)),
         error=st.get("error"),
     )
 
