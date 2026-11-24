@@ -99,6 +99,28 @@ def token_path_for(tv: TV) -> str:
     return tv.token_path or os.path.join(settings.TOKEN_DIR, f"tv_{tv.id}.token")
 
 
+# Older versions wrote this placeholder when a TV connected without issuing a
+# token. It is not a token: sending it back makes the TV refuse or re-prompt.
+LEGACY_PLACEHOLDER_TOKEN = "developer-mode"
+
+
+def has_real_token(token_file: str) -> bool:
+    try:
+        token = Path(token_file).read_text().strip()
+    except OSError:
+        return False
+    return bool(token) and token != LEGACY_PLACEHOLDER_TOKEN
+
+
+def remove_legacy_placeholder_token(token_file: str) -> None:
+    try:
+        if Path(token_file).read_text().strip() == LEGACY_PLACEHOLDER_TOKEN:
+            os.remove(token_file)
+            log.info("removed legacy placeholder token %s", token_file)
+    except OSError:
+        pass
+
+
 class TVConnection:
     def __init__(self, tv: TV) -> None:
         self.tv_id = tv.id
@@ -182,6 +204,8 @@ class TVConnection:
 
 
 class TVManager:
+    PAIR_TIMEOUT_SECS = 45.0  # time for the user to press Allow on the TV
+
     def __init__(self) -> None:
         self.connections: dict[int, TVConnection] = {}
         self._poll_tasks: dict[int, asyncio.Task] = {}
@@ -268,15 +292,17 @@ class TVManager:
 
     # ── High-level operations ────────────────────────────────────────────────
     async def pair(self, tv: TV) -> bool:
-        """Connect to the TV to trigger the Allow/Deny prompt (or accept silently in
-        developer mode) and record the token.  Returns True if the TV accepted the
-        connection.  Completes within ~15 seconds — does NOT poll or block the HTTP
-        connection for a long time."""
+        """Open the remote channel to trigger the Allow/Deny prompt on the TV and
+        wait for the token it issues (up to ~45 s, time to press Allow).
+
+        Returns True only once a real token has been saved: a channel that opens
+        without a token does not survive a reconnect, so it is not a pairing."""
         conn = await self.get(tv)
         await conn.reset_connection()  # lock-safe reset before fresh handshake
+        remove_legacy_placeholder_token(conn.token_file)
 
         try:
-            await asyncio.wait_for(conn._ensure_art(), timeout=15.0)
+            await asyncio.wait_for(conn._ensure_remote(), timeout=self.PAIR_TIMEOUT_SECS)
         except asyncio.TimeoutError:
             log.warning("pair: connection timed out for TV %s", tv.id)
             return False
@@ -284,22 +310,11 @@ class TVManager:
             log.warning("pair: connection failed for TV %s: %s", tv.id, e)
             return False
 
-        # Connection succeeded — check whether the library received a real token.
-        token_path = conn.token_file
-        if os.path.exists(token_path) and os.path.getsize(token_path) > 0:
+        if has_real_token(conn.token_file):
             log.info("pair: token saved for TV %s", tv.id)
             return True
-
-        # Connected without a real token — normal when the TV is in developer mode
-        # (it accepts silently and never issues a new token).  Write a placeholder
-        # so the UI reports paired: true.
-        try:
-            os.makedirs(os.path.dirname(token_path), exist_ok=True)
-            Path(token_path).write_text("developer-mode\n")
-            log.info("pair: developer-mode connection for TV %s — placeholder token written", tv.id)
-        except Exception as e:
-            log.warning("pair: could not write placeholder token for TV %s: %s", tv.id, e)
-        return True
+        log.warning("pair: TV %s accepted the connection but issued no token", tv.id)
+        return False
 
     async def power_on(self, tv: TV) -> bool:
         if not tv.mac or not HAS_WOL:
